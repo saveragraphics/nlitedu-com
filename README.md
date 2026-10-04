@@ -1,26 +1,15 @@
-# Startup - Free Next.js Startup Website Template
+# NLITedu Platform
 
-Startup is a free, open-source, and premium-quality [**Next.js startup website template**](https://nextjstemplates.com/templates/startup) that comes with everything you need to launch a startup, business, or SaaS website, including all essential sections, components, and pages.
+Welcome to the NLITedu web platform, managed by **Savera Graphics**.
 
-If you're looking for a high-quality and visually appealing, feature-rich Next.js Template for your next startup, SaaS, or business website, this is the perfect choice and starting point for you!
+This repository contains the sanitized and secure frontend application for the NLITedu platform.
 
-### ✨ Key Features
-- Crafted for Startup and SaaS Business
-- Next.js and Tailwind CSS
-- All Essential Business Sections and Pages
-- High-quality and Clean Design
-- Dark and Light Version
-- TypeScript Support
-and Much More ...
+## Architecture
+- **Framework**: Next.js (React)
+- **Styling**: Tailwind CSS
+- **Deployment**: Vercel
 
-### 🙌 Detailed comparison between the Free and Pro versions of Startup
-
-| Feature             | Free | Pro |
-|---------------------|------------|----------|
-| Next.js Landing Page             | ✅ Yes      | ✅ Yes      |
-| All The Integrations - Auth, DB, Payments, Blog and many more ...             | ❌ No      | ✅ Yes |
-| Homepage Variations             | 1      | 2 |
-| Additional SaaS Pages and Components             | ❌ No      | ✅ Yes |
+*(This is a secure client repository. Sensitive environment variables and admin features have been intentionally excluded.)*
 | Functional Blog with Sanity       | ❌ No      | ✅ Yes |
 | Use with Commercial Projects            | ✅ Yes      | ✅ Yes      |
 | Lifetime Free Updates             | ✅ Yes      | ✅ Yes |
