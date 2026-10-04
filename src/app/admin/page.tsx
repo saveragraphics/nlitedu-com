@@ -1,0 +1,1904 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { supabase } from "@/lib/supabaseClient";
+import { 
+  FaSearch, FaDownload, FaUserGraduate, FaCreditCard, 
+  FaClock, FaEye, FaUniversity, FaFilter, FaFileCsv,
+  FaVideo, FaStop, FaPlay, FaUsers, FaLink, FaBroadcastTower,
+  FaClipboardList, FaPlus, FaTrash, FaEnvelope, FaEdit,
+  FaPlayCircle, FaExternalLinkAlt, FaLock, FaBook, FaPen
+} from "react-icons/fa";
+import { motion, AnimatePresence } from "framer-motion";
+import EnrollmentDetail from "../../components/Admin/EnrollmentDetail";
+import { fetchCourses } from "@/data/courses";
+
+interface LiveSession {
+  id: string;
+  course_id: string;
+  course_title: string;
+  session_url: string;
+  is_live: boolean;
+  started_at: string;
+  scheduled_at?: string;
+  created_at?: string;
+}
+
+interface RecordedSession {
+  id: string;
+  course_id: string;
+  course_title: string;
+  topic: string;
+  video_url: string;
+  recorded_at: string;
+}
+
+interface LiveAttendance {
+  id: string;
+  session_id: string;
+  student_name: string;
+  student_email: string;
+  joined_at: string;
+}
+
+interface Enrollment {
+  id: string;
+  full_name: string;
+  email: string;
+  course_title: string;
+  status: string; 
+  cf_payment_id: string;
+  created_at: string;
+  user_id: string;
+  college_name: string;
+  college_type: string;
+  branch: string;
+  semester: string;
+  whatsapp: string;
+  father_name: string;
+  gender: string;
+  dob: string;
+  brn: string;
+  state: string;
+  qualification: string;
+  marksheet12Url?: string;
+  marksheetSemUrl?: string;
+  message?: string;
+  interested_internships?: string;
+  enrollment_type?: string;
+  internship_mode?: string;
+  duration?: string;
+  payment_amount?: number | string;
+}
+
+interface Quiz {
+  id: string;
+  title: string;
+  description: string;
+  course_slug: string;
+  duration_minutes: number;
+  is_active: boolean;
+  created_at: string;
+  scheduled_for?: string | null;
+}
+
+interface QuizQuestion {
+  id: string;
+  quiz_id: string;
+  question_text: string;
+  options: string[];
+  correct_index: number;
+  points: number;
+  order_index: number;
+}
+
+export default function AdminDashboard() {
+  const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [statusFilter, setStatusFilter] = useState("ALL");
+  const [typeFilter, setTypeFilter] = useState("ALL");
+  const [selectedEnrollment, setSelectedEnrollment] = useState<Enrollment | null>(null);
+  const [isRevenueVisible, setIsRevenueVisible] = useState(false);
+  
+  // Courses
+  const [courses, setCourses] = useState<any[]>([]);
+
+  // Live Class State
+  const [activeAdminTab, setActiveAdminTab] = useState<"STUDENTS" | "LIVE" | "RECORDINGS" | "QUIZZES" | "EMAIL" | "COURSES" | "MATERIALS">("STUDENTS");
+  const [liveSessions, setLiveSessions] = useState<LiveSession[]>([]);
+  const [liveAttendance, setLiveAttendance] = useState<LiveAttendance[]>([]);
+  const [isStartingSession, setIsStartingSession] = useState(false);
+  const [newSession, setNewSession] = useState({ course: "", url: "", scheduled_at: "", course_title: "" });
+  const [isNativeLiveKit, setIsNativeLiveKit] = useState(false);
+  const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
+
+  // Study Materials State
+  // --- STORAGE LOCK FEATURE FLAG ---
+  // Change this to `false` after payment verification to unlock the Study Materials upload feature!
+  const IS_STORAGE_LOCKED = false;
+
+  const [studyMaterials, setStudyMaterials] = useState<any[]>([]);
+  const [newMaterial, setNewMaterial] = useState({ course_title: "", topic: "", document_url: "" });
+  const [materialFile, setMaterialFile] = useState<File | null>(null);
+  const [isAddingMaterial, setIsAddingMaterial] = useState(false);
+  const [editingMaterialId, setEditingMaterialId] = useState<string | null>(null);
+  const [showUpgradeCard, setShowUpgradeCard] = useState(false);
+
+  // Recorded Sessions State
+  const [recordedSessions, setRecordedSessions] = useState<RecordedSession[]>([]);
+  const [newRecording, setNewRecording] = useState({ course: "", course_title: "", topic: "", url: "", date: new Date().toISOString().split('T')[0] });
+  const [isAddingRecording, setIsAddingRecording] = useState(false);
+
+  // Quiz State
+  const [quizzes, setQuizzes] = useState<Quiz[]>([]);
+  const [selectedQuiz, setSelectedQuiz] = useState<Quiz | null>(null);
+  const [quizQuestions, setQuizQuestions] = useState<QuizQuestion[]>([]);
+  const [isCreatingQuiz, setIsCreatingQuiz] = useState(false);
+  const [newQuiz, setNewQuiz] = useState({ title: "", description: "", course_slug: "global", duration_minutes: 30, scheduled_for: "" });
+  const [newQuestion, setNewQuestion] = useState({ question_text: "", options: ["", "", "", ""], correct_index: 0, points: 1 });
+  const [editingQuizId, setEditingQuizId] = useState<string | null>(null);
+  const [editingQuestionId, setEditingQuestionId] = useState<string | null>(null);
+
+  // Course Management State
+  const [courseFilter, setCourseFilter] = useState("ALL");
+  const [isCreatingCourse, setIsCreatingCourse] = useState(false);
+  const [editingCourseId, setEditingCourseId] = useState<string | null>(null);
+  const [newCourse, setNewCourse] = useState({
+    title: "",
+    slug: "",
+    description: "",
+    category: "DESIGN",
+    program_type: "Foundation",
+    govt_price: 1999,
+    pvt_price: 2999,
+    job_price: 3999,
+    duration: "12 Weeks",
+    level: "Intermediate",
+    is_bestseller: false,
+    instructor_name: "NLITedu Official",
+    highlights: ["", "", ""],
+    syllabus: ["", "", ""]
+  });
+
+  const handleSaveCourse = async () => {
+    if (!newCourse.title || !newCourse.slug || !supabase) {
+      alert("Please fill title and slug.");
+      return;
+    }
+    setIsCreatingCourse(true);
+    try {
+      const payload = {
+        ...newCourse,
+        price: "₹999*", // Default label
+        rating: 4.8,
+        total_reviews: 1200,
+        image_url: `https://www.nlitedu.com/fontimage/${newCourse.slug}.png`,
+        instructor_image: `https://ui-avatars.com/api/?name=${newCourse.instructor_name.replace(" ", "+")}&background=random`,
+        is_legacy_pricing: false
+      };
+
+      if (editingCourseId) {
+        const { error } = await supabase.from("courses").update(payload).eq("id", editingCourseId);
+        if (error) throw error;
+        alert("Course updated!");
+      } else {
+        const { error } = await supabase.from("courses").insert([payload]);
+        if (error) throw error;
+        alert("Course created!");
+      }
+      setEditingCourseId(null);
+      setIsCreatingCourse(false);
+      setNewCourse({
+        title: "", slug: "", description: "", category: "DESIGN", program_type: "Foundation",
+        govt_price: 1999, pvt_price: 2999, job_price: 3999,
+        duration: "12 Weeks", level: "Intermediate", is_bestseller: false,
+        instructor_name: "NLITedu Official", highlights: ["", "", ""], syllabus: ["", "", ""]
+      });
+      const updated = await fetchCourses(undefined, undefined, "*");
+      setCourses(updated);
+    } catch (err: any) {
+      alert("Error: " + err.message);
+    }
+    setIsCreatingCourse(false);
+  };
+
+  const handleEditCourse = (course: any) => {
+    setEditingCourseId(course.id);
+    setNewCourse({
+      title: course.title,
+      slug: course.slug,
+      description: course.description,
+      category: course.category,
+      program_type: course.program_type || "Foundation",
+      govt_price: course.govt_price,
+      pvt_price: course.pvt_price,
+      job_price: course.job_price,
+      duration: course.duration,
+      level: course.level,
+      is_bestseller: course.is_bestseller,
+      instructor_name: course.instructor_name,
+      highlights: course.highlights || ["", "", ""],
+      syllabus: course.syllabus || ["", "", ""]
+    });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const handleDeleteCourse = async (id: string) => {
+    if (!confirm("Are you sure?")) return;
+    if (!supabase) return;
+    const { error } = await supabase.from("courses").delete().eq("id", id);
+    if (!error) {
+      const updated = await fetchCourses(undefined, undefined, "*");
+      setCourses(updated);
+    }
+  };
+
+  // Email Blaster State
+  const [emailBlast, setEmailBlast] = useState({ audience: "ALL", subject: "", message: "" });
+  const [isSendingEmail, setIsSendingEmail] = useState(false);
+
+  const fetchRecordedSessions = async () => {
+    if (!supabase) return;
+    const { data } = await supabase.from("recorded_sessions").select("*").order("recorded_at", { ascending: false });
+    if (data) setRecordedSessions(data);
+  };
+
+  const handleAddRecording = async () => {
+    if (!newRecording.course || !newRecording.topic || !newRecording.url || !supabase) {
+      alert("Fill all fields"); return;
+    }
+    setIsAddingRecording(true);
+    const { error } = await supabase.from("recorded_sessions").insert([{
+      course_id: newRecording.course,
+      course_title: newRecording.course,
+      topic: newRecording.topic,
+      video_url: newRecording.url,
+      recorded_at: newRecording.date
+    }]);
+    if (!error) {
+      setNewRecording({ course: "", course_title: "", topic: "", url: "", date: new Date().toISOString().split('T')[0] });
+      fetchRecordedSessions();
+    } else alert("Error: " + error.message);
+    setIsAddingRecording(false);
+  };
+
+  const handleDeleteRecording = async (id: string) => {
+    if (!supabase || !confirm("Delete recording?")) return;
+    await supabase.from("recorded_sessions").delete().eq("id", id);
+    fetchRecordedSessions();
+  };
+
+  const fetchStudyMaterials = async () => {
+    if (!supabase) return;
+    const { data } = await supabase.from("study_materials").select("*").order("created_at", { ascending: false });
+    if (data) setStudyMaterials(data);
+  };
+
+  const handleAddMaterial = async () => {
+    if (!newMaterial.course_title || !newMaterial.topic || (!newMaterial.document_url && !materialFile) || !supabase) {
+      alert("Fill all fields"); return;
+    }
+    setIsAddingMaterial(true);
+    let finalUrl = newMaterial.document_url;
+
+    if (materialFile) {
+      try {
+        const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
+        const uploadPreset = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET;
+        if (!cloudName || !uploadPreset) throw new Error("Cloudinary config missing.");
+        
+        const formData = new FormData();
+        formData.append("file", materialFile);
+        formData.append("upload_preset", uploadPreset);
+        const resourceType = materialFile.type === "application/pdf" ? "raw" : "auto";
+        
+        const res = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/${resourceType}/upload`, { method: "POST", body: formData });
+        if (!res.ok) throw new Error("Upload failed");
+        const data = await res.json();
+        finalUrl = data.secure_url;
+      } catch (err: any) {
+        alert(err.message);
+        setIsAddingMaterial(false);
+        return;
+      }
+    }
+    if (editingMaterialId) {
+      const { error } = await supabase.from("study_materials").update({
+        course_title: newMaterial.course_title,
+        topic: newMaterial.topic,
+        document_url: finalUrl
+      }).eq('id', editingMaterialId);
+      
+      if (!error) {
+        setNewMaterial({ course_title: "", topic: "", document_url: "" });
+        setMaterialFile(null);
+        setEditingMaterialId(null);
+        fetchStudyMaterials();
+      } else alert("Error updating material: " + error.message);
+    } else {
+      const { error } = await supabase.from("study_materials").insert([{
+        course_title: newMaterial.course_title,
+        topic: newMaterial.topic,
+        document_url: finalUrl
+      }]);
+      
+      if (!error) {
+        setNewMaterial({ course_title: "", topic: "", document_url: "" });
+        setMaterialFile(null);
+        fetchStudyMaterials();
+      } else alert("Error: " + error.message);
+    }
+    setIsAddingMaterial(false);
+  };
+
+  const handleEditMaterial = (material: any) => {
+    setEditingMaterialId(material.id);
+    setNewMaterial({
+      course_title: material.course_title || "",
+      topic: material.topic || "",
+      document_url: material.document_url || ""
+    });
+    setMaterialFile(null);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const handleDeleteMaterial = async (id: string) => {
+    if (!supabase || !confirm("Delete material?")) return;
+    await supabase.from("study_materials").delete().eq("id", id);
+    fetchStudyMaterials();
+  };
+
+  useEffect(() => {
+    if (supabase) {
+      fetchEnrollments();
+      fetchLiveSessions();
+      fetchAttendance();
+      fetchQuizzes();
+      fetchRecordedSessions();
+      fetchStudyMaterials();
+      fetchCourses(undefined, undefined, "*").then(setCourses);
+
+      const currentSupabase = supabase;
+      
+      // Subscriptions
+      const subEnrollments = currentSupabase
+        .channel("admin_enrollments")
+        .on("postgres_changes", { event: "*", schema: "public", table: "enrollments" }, (payload: any) => {
+          if (payload.eventType === "INSERT") {
+            const newRecord = payload.new as Enrollment;
+            setEnrollments(prev => [newRecord, ...prev]);
+          } else if (payload.eventType === "UPDATE") {
+            const updatedRecord = payload.new as Enrollment;
+            setEnrollments(prev => prev.map(e => e.id === updatedRecord.id ? { ...e, ...updatedRecord } : e));
+          } else if (payload.eventType === "DELETE") {
+            const oldRecord = payload.old as { id: string };
+            setEnrollments(prev => prev.filter(e => e.id !== oldRecord.id));
+          }
+        })
+        .subscribe();
+
+      const subLive = currentSupabase
+        .channel("admin_live")
+        .on("postgres_changes", { event: "*", schema: "public", table: "live_sessions" }, () => fetchLiveSessions())
+        .subscribe();
+
+      const subAttendance = currentSupabase
+        .channel("admin_attendance")
+        .on("postgres_changes", { event: "INSERT", schema: "public", table: "live_attendance" }, () => fetchAttendance())
+        .subscribe();
+
+      return () => {
+        currentSupabase.removeChannel(subEnrollments);
+        currentSupabase.removeChannel(subLive);
+        currentSupabase.removeChannel(subAttendance);
+      };
+    }
+  }, []);
+
+  const fetchEnrollments = async () => {
+    if (!supabase) return;
+    try {
+      if (enrollments.length === 0) setLoading(true);
+      
+      let allEnrollments: any[] = [];
+      let fetchMore = true;
+      let from = 0;
+      const step = 1000;
+
+      while (fetchMore) {
+        const { data, error } = await supabase
+          .from("enrollments")
+          .select("id, full_name, email, course_title, status, college_name, enrollment_type, payment_amount, college_type, internship_mode, message, state, duration, cf_payment_id, created_at, user_id")
+          .order("created_at", { ascending: false })
+          .range(from, from + step - 1);
+          
+        if (error) throw error;
+        
+        if (data && data.length > 0) {
+          allEnrollments = [...allEnrollments, ...data];
+          from += step;
+          if (data.length < step) {
+            fetchMore = false; // Reached the end
+          }
+        } else {
+          fetchMore = false; // No more data
+        }
+      }
+
+      setEnrollments(allEnrollments);
+    } catch (e) { console.error(e); } finally { setLoading(false); }
+  };
+
+  const handleViewEnrollment = async (e: Enrollment) => {
+    setSelectedEnrollment(e);
+    if (supabase) {
+      try {
+        const { data, error } = await supabase
+          .from("enrollments")
+          .select("*")
+          .eq("id", e.id)
+          .single();
+        if (!error && data) {
+          setSelectedEnrollment(data);
+          setEnrollments(prev => prev.map(item => item.id === e.id ? data : item));
+        }
+      } catch (err) {
+        console.error("Error fetching enrollment detail:", err);
+      }
+    }
+  };
+
+  const fetchLiveSessions = async () => {
+    if (!supabase) return;
+    try {
+      const { data, error } = await supabase
+        .from("live_sessions")
+        .select("*")
+        .order("id", { ascending: false });
+      if (error) {
+        console.error("Error fetching live sessions:", error);
+        return;
+      }
+      setLiveSessions(data || []);
+    } catch (e) {
+      console.error("Exception fetching sessions:", e);
+    }
+  };
+
+  const fetchAttendance = async () => {
+    if (!supabase) return;
+    const { data } = await supabase.from("live_attendance").select("id, session_id, student_name, student_email, joined_at").order("joined_at", { ascending: false }).limit(20);
+    if (data) setLiveAttendance(data);
+  };
+
+  const fetchQuizzes = async () => {
+    if (!supabase) return;
+    const { data } = await supabase.from("quizzes").select("*").order("created_at", { ascending: false });
+    if (data) setQuizzes(data);
+  };
+
+  const fetchQuizQuestions = async (quizId: string) => {
+    if (!supabase) return;
+    const { data } = await supabase.from("quiz_questions").select("*").eq("quiz_id", quizId).order("order_index", { ascending: true });
+    if (data) setQuizQuestions(data);
+  };
+
+  const handleStartLive = async (isScheduled: boolean = false) => {
+    if (!newSession.course || !newSession.url || !supabase) {
+      alert("Fill all fields"); return;
+    }
+    setIsStartingSession(true);
+
+    let meetingUrl = newSession.url.trim();
+    if (isNativeLiveKit) {
+      meetingUrl = meetingUrl.startsWith("livekit://") ? meetingUrl : "livekit://" + meetingUrl;
+    } else if (!meetingUrl.startsWith("http://") && !meetingUrl.startsWith("https://") && !meetingUrl.startsWith("livekit://")) {
+      meetingUrl = "https://" + meetingUrl;
+    }
+
+    const isNative = meetingUrl.startsWith("livekit://") || meetingUrl.startsWith("agora://");
+    const payload: any = { 
+      course_id: newSession.course, 
+      course_title: newSession.course, 
+      session_url: meetingUrl, 
+      is_live: editingSessionId 
+        ? liveSessions.find(s => s.id === editingSessionId)?.is_live 
+        : (isNative ? false : !isScheduled),
+      scheduled_at: isScheduled ? new Date(newSession.scheduled_at).toISOString() : null
+    };
+
+    if (!editingSessionId && !isScheduled && !isNative) {
+      payload.started_at = new Date().toISOString();
+    }
+
+
+    if (editingSessionId) {
+      const { error } = await supabase.from("live_sessions").update(payload).eq("id", editingSessionId);
+      if (!error) {
+        setNewSession({ course: "", url: "", scheduled_at: "", course_title: "" });
+        setIsNativeLiveKit(false);
+        setEditingSessionId(null);
+        alert("Session Updated!");
+        fetchLiveSessions();
+      } else {
+        alert("Update Error: " + error.message);
+      }
+    } else {
+      const { error } = await supabase.from("live_sessions").insert([payload]);
+      if (!error) { 
+        setNewSession({ course: "", url: "", scheduled_at: "", course_title: "" }); 
+        setIsNativeLiveKit(false);
+        alert(isScheduled ? "Class Scheduled!" : "Class Started!"); 
+        fetchLiveSessions();
+      } else {
+        alert("Error: " + error.message);
+      }
+    }
+    setIsStartingSession(false);
+  };
+
+  const handleDownloadAttendance = async (sessionId: string, courseTitle: string, date: string) => {
+    if (!supabase) return;
+    try {
+      const { data, error } = await supabase
+        .from("live_attendance")
+        .select("student_name, student_email, joined_at")
+        .eq("session_id", sessionId)
+        .order("joined_at", { ascending: true });
+        
+      if (error) throw error;
+      if (!data || data.length === 0) {
+        alert("No attendance records for this session.");
+        return;
+      }
+
+      const headers = ["Student Name", "Email", "Joined At"].join(",");
+      const rows = data.map(r => [
+        `"${r.student_name}"`, 
+        r.student_email, 
+        new Date(r.joined_at).toLocaleString()
+      ].join(","));
+      
+      const blob = new Blob([[headers, ...rows].join("\n")], { type: "text/csv" });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `Attendance_${courseTitle.replace(/\s+/g, '_')}_${date.split('T')[0]}.csv`;
+      a.click();
+    } catch (e: any) {
+      alert("Failed to download attendance: " + e.message);
+    }
+  };
+
+  const handleActivateScheduled = async (id: string) => {
+    if (!supabase) return;
+    const { error } = await supabase
+      .from("live_sessions")
+      .update({ is_live: true, started_at: new Date().toISOString() })
+      .eq("id", id);
+    if (!error) fetchLiveSessions();
+  };
+
+  const handleEndLive = async (id: string) => {
+    if (!supabase) return;
+    await supabase.from("live_sessions").update({ is_live: false }).eq("id", id);
+    fetchLiveSessions();
+  };
+
+  const handleDeleteSession = async (id: string) => {
+    if (!supabase || !confirm("Delete this session?")) return;
+    await supabase.from("live_sessions").delete().eq("id", id);
+    fetchLiveSessions();
+  };
+
+  const handleCreateQuiz = async () => {
+    if (!newQuiz.title || !newQuiz.course_slug || !supabase) {
+      alert("Please fill title and course slug.");
+      return;
+    }
+    setIsCreatingQuiz(true);
+    try {
+      const payload = {
+        title: newQuiz.title,
+        description: newQuiz.description,
+        course_slug: newQuiz.course_slug,
+        duration_minutes: newQuiz.duration_minutes,
+        ...(newQuiz.scheduled_for ? { scheduled_for: new Date(newQuiz.scheduled_for).toISOString() } : {})
+      };
+
+      if (editingQuizId) {
+        const { error } = await supabase.from("quizzes").update(payload).eq("id", editingQuizId);
+        if (error) {
+          console.error("Error updating quiz:", error);
+          alert("Failed to update test: " + error.message);
+        } else {
+          setNewQuiz({ title: "", description: "", course_slug: "global", duration_minutes: 30, scheduled_for: "" });
+          setEditingQuizId(null);
+          fetchQuizzes();
+          alert("Test updated successfully!");
+        }
+      } else {
+        const { data, error } = await supabase.from("quizzes").insert([payload]).select();
+        if (error) {
+          console.error("Error creating quiz:", error);
+          alert("Failed to create test: " + error.message);
+        } else if (data) {
+          setNewQuiz({ title: "", description: "", course_slug: "global", duration_minutes: 30, scheduled_for: "" });
+          fetchQuizzes();
+          alert("Test created successfully!");
+        }
+      }
+    } catch (err: any) {
+      console.error("Exception creating quiz:", err);
+      alert("Exception: " + err.message);
+    }
+    setIsCreatingQuiz(false);
+  };
+
+  const handleDownloadQuizResults = async (quizId: string, quizTitle: string) => {
+    if (!supabase) return;
+    try {
+      const { data: questionsData, error: qError } = await supabase
+        .from("quiz_questions")
+        .select("id, question_text, correct_index")
+        .eq("quiz_id", quizId)
+        .order("id", { ascending: true });
+        
+      if (qError) throw qError;
+      const questions = questionsData || [];
+
+      const { data, error } = await supabase
+        .from("quiz_attempts")
+        .select("user_email, score, total_points, answers, completion_time_seconds")
+        .eq("quiz_id", quizId)
+        .order("score", { ascending: false });
+        
+      if (error) throw error;
+      if (!data || data.length === 0) {
+        alert("No attempts yet for this test.");
+        return;
+      }
+      
+      const headers = ["Name", "Email", "Score", "Total Points", "Completion Time"];
+      questions.forEach((q, i) => {
+        headers.push(`"Q${i + 1}"`);
+      });
+
+      const formatDuration = (seconds: number | null | undefined) => {
+        if (seconds === null || seconds === undefined) return "N/A";
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        if (mins > 0) {
+          return `${mins}m ${secs}s`;
+        }
+        return `${secs}s`;
+      };
+
+      const rows = data.map(r => {
+        const studentName = enrollments.find(e => e.email === r.user_email)?.full_name || "Unknown";
+        const row = [
+          `"${studentName}"`, 
+          r.user_email, 
+          r.score, 
+          r.total_points,
+          `"${formatDuration(r.completion_time_seconds as any)}"`
+        ];
+        
+        questions.forEach(q => {
+          const answers = r.answers || {};
+          const selected = answers[q.id];
+          if (selected === undefined || selected === null) {
+            row.push("Not Answered");
+          } else if (selected === q.correct_index) {
+            row.push("Correct");
+          } else {
+            row.push("Incorrect");
+          }
+        });
+        
+        return row.join(",");
+      });
+
+      const blob = new Blob([[headers.join(","), ...rows].join("\n")], { type: "text/csv" });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; 
+      a.download = `Results_${quizTitle.replace(/\s+/g, '_')}.csv`; 
+      a.click();
+    } catch (e: any) {
+      alert("Failed to download results: " + e.message);
+    }
+  };
+
+  const handleSendEmailBlast = async () => {
+    if (!emailBlast.subject || !emailBlast.message) {
+      alert("Please fill subject and message.");
+      return;
+    }
+
+    setIsSendingEmail(true);
+    try {
+      let targetEmails: string[] = [];
+      
+      if (emailBlast.audience === "ALL") {
+        targetEmails = enrollments.map(e => e.email);
+      } else if (emailBlast.audience === "ALL_REGISTERED") {
+        targetEmails = [];
+      } else {
+        const course = courses.find(c => c.slug === emailBlast.audience);
+        if (course) {
+          targetEmails = enrollments
+            .filter(e => e.course_title === course.title)
+            .map(e => e.email);
+        }
+      }
+
+      const payload = {
+        ...emailBlast,
+        targetEmails: targetEmails.filter(Boolean)
+      };
+
+      const response = await fetch("/api/email/blast", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await response.json();
+      if (response.ok) {
+        alert("Emails sent successfully!");
+        setEmailBlast({ audience: "ALL", subject: "", message: "" });
+      } else {
+        alert("Failed to send emails: " + (data.error || "Unknown error"));
+      }
+    } catch (e: any) {
+      alert("Error sending emails: " + e.message);
+    } finally {
+      setIsSendingEmail(false);
+    }
+  };
+
+  const handleAddQuestion = async () => {
+    if (!selectedQuiz || !newQuestion.question_text || newQuestion.options.some(o => !o) || !supabase) {
+      alert("Please fill question and all options.");
+      return;
+    }
+    const payload = {
+      quiz_id: selectedQuiz.id,
+      ...newQuestion
+    };
+
+    if (editingQuestionId) {
+      const { error } = await supabase.from("quiz_questions").update(payload).eq("id", editingQuestionId);
+      if (error) {
+        alert("Failed to update question: " + error.message);
+      } else {
+        setNewQuestion({ question_text: "", options: ["", "", "", ""], correct_index: 0, points: 1 });
+        setEditingQuestionId(null);
+        fetchQuizQuestions(selectedQuiz.id);
+        alert("Question updated!");
+      }
+    } else {
+      const { error } = await supabase.from("quiz_questions").insert([payload]);
+      if (error) {
+        alert("Failed to add question: " + error.message);
+      } else {
+        setNewQuestion({ question_text: "", options: ["", "", "", ""], correct_index: 0, points: 1 });
+        fetchQuizQuestions(selectedQuiz.id);
+        alert("Question added!");
+      }
+    }
+  };
+
+  const handleDeleteQuiz = async (id: string) => {
+    if (!supabase || !confirm("Are you sure you want to delete this test?")) return;
+    
+    await supabase.from("quiz_attempts").delete().eq("quiz_id", id);
+    await supabase.from("quiz_questions").delete().eq("quiz_id", id);
+    
+    const { error } = await supabase.from("quizzes").delete().eq("id", id);
+    if (error) alert("Failed to delete test: " + error.message);
+    else fetchQuizzes();
+  };
+
+  const handleToggleQuizActive = async (id: string, currentStatus: boolean) => {
+    if (!supabase) return;
+    const { error } = await supabase
+      .from("quizzes")
+      .update({ is_active: !currentStatus })
+      .eq("id", id);
+    if (!error) {
+      fetchQuizzes();
+    } else {
+      alert("Failed to toggle status: " + error.message);
+    }
+  };
+
+  const handleDeleteQuestion = async (id: string) => {
+    if (!supabase || !selectedQuiz) return;
+    const { error } = await supabase.from("quiz_questions").delete().eq("id", id);
+    if (error) alert("Failed to delete question: " + error.message);
+    else fetchQuizQuestions(selectedQuiz.id);
+  };
+
+  const downloadCSV = () => {
+    if (enrollments.length === 0) return;
+    const headers = ["ID", "Name", "Email", "Course", "Status", "College"].join(",");
+    const rows = enrollments.map(e => [e.id, e.full_name, e.email, e.course_title, e.status, e.college_name].join(","));
+    const blob = new Blob([[headers, ...rows].join("\n")], { type: "text/csv" });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "enrollments.csv"; a.click();
+  };
+
+  const filteredEnrollments = enrollments.filter(e => {
+    const matchesSearch = e.full_name.toLowerCase().includes(searchTerm.toLowerCase()) || e.email.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesStatus = statusFilter === "ALL" || e.status === statusFilter;
+    
+    let eType = (e.enrollment_type || "internship").toLowerCase();
+    const matchesType = typeFilter === "ALL" || eType === typeFilter.toLowerCase();
+    
+    return matchesSearch && matchesStatus && matchesType;
+  });
+
+  const stats = {
+    total: enrollments.length,
+    paid: enrollments.filter(e => e.status === "PAID").length,
+    pending: enrollments.filter(e => e.status === "PENDING").length,
+    revenue: Math.round(enrollments.filter(e => e.status === "PAID").reduce((sum, e) => {
+      if (e.payment_amount != null) {
+        return sum + Number(e.payment_amount);
+      }
+      let calculatedFee = 0;
+      const isInternship = (!e.enrollment_type || e.enrollment_type === 'internship');
+      let internshipMode = e.internship_mode || null;
+      let cleanMessage = e.message || "";
+      if (!internshipMode && cleanMessage.includes("[Internship Mode:")) {
+        const match = cleanMessage.match(/\[Internship Mode:\s*([^\]]+)\]/);
+        if (match) internshipMode = match[1];
+      }
+      if (isInternship) {
+        if (e.state === "Bihar") {
+          const duration = e.duration || "";
+          const mode = internshipMode || "Online";
+          if (e.college_type === "govt") {
+            if (mode === "Online") {
+              if (duration.includes("2")) calculatedFee = 799;
+              else if (duration.includes("4")) calculatedFee = 999;
+              else if (duration.includes("6")) calculatedFee = 1199;
+              else if (duration.includes("8")) calculatedFee = 1399;
+              else calculatedFee = 999;
+            } else {
+              if (duration.includes("2")) calculatedFee = 1299;
+              else if (duration.includes("4")) calculatedFee = 1499;
+              else if (duration.includes("6")) calculatedFee = 1999;
+              else if (duration.includes("8")) calculatedFee = 2499;
+              else calculatedFee = 1499;
+            }
+          } else if (e.college_type === "private") {
+            if (mode === "Online") {
+              if (duration.includes("2")) calculatedFee = 999;
+              else if (duration.includes("4")) calculatedFee = 1499;
+              else if (duration.includes("6")) calculatedFee = 1999;
+              else if (duration.includes("8")) calculatedFee = 2499;
+              else calculatedFee = 1999;
+            } else {
+              if (duration.includes("2")) calculatedFee = 1799;
+              else if (duration.includes("4")) calculatedFee = 1999;
+              else if (duration.includes("6")) calculatedFee = 2499;
+              else if (duration.includes("8")) calculatedFee = 2999;
+              else calculatedFee = 1999;
+            }
+          } else if (e.college_type === "job") calculatedFee = 2999;
+        } else {
+          if (e.college_type === "govt") calculatedFee = 1499;
+          else if (e.college_type === "private") calculatedFee = 1999;
+          else if (e.college_type === "job") calculatedFee = 2999;
+        }
+      } else {
+        calculatedFee = 499;
+      }
+      if (calculatedFee === 0) calculatedFee = 999;
+      return sum + calculatedFee;
+    }, 0))
+  };
+
+  const handleRevenueClick = () => {
+    if (isRevenueVisible) {
+      setIsRevenueVisible(false);
+      return;
+    }
+    const pin = window.prompt("Enter Admin PIN to view revenue:");
+    const correctPin = process.env.NEXT_PUBLIC_ADMIN_REVENUE_PIN || "703370";
+    if (pin === correctPin) {
+      setIsRevenueVisible(true);
+    } else if (pin !== null) {
+      alert("Incorrect PIN");
+    }
+  };
+
+  return (
+    <div className="container mx-auto px-4 pb-20">
+      {/* Tabs */}
+      <div className="flex justify-center mb-10">
+        <div className="bg-slate-100 dark:bg-slate-800 p-1.5 rounded-2xl flex gap-2 border border-slate-200 dark:border-slate-700">
+          <button onClick={() => setActiveAdminTab("STUDENTS")} className={`px-8 py-3 rounded-xl font-bold flex items-center gap-2 ${activeAdminTab === "STUDENTS" ? "bg-white dark:bg-slate-700 text-primary shadow" : "text-slate-500"}`}>
+            <FaUserGraduate /> Students
+          </button>
+          <button onClick={() => setActiveAdminTab("LIVE")} className={`px-8 py-3 rounded-xl font-bold flex items-center gap-2 ${activeAdminTab === "LIVE" ? "bg-white dark:bg-slate-700 text-primary shadow" : "text-slate-500"}`}>
+            <FaVideo /> Live Control
+            {liveSessions.length > 0 && <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />}
+          </button>
+          <button onClick={() => setActiveAdminTab("RECORDINGS")} className={`px-8 py-3 rounded-xl font-bold flex items-center gap-2 ${activeAdminTab === "RECORDINGS" ? "bg-white dark:bg-slate-700 text-primary shadow" : "text-slate-500"}`}>
+            <FaPlayCircle /> Recordings
+          </button>
+          <button onClick={() => setActiveAdminTab("QUIZZES")} className={`px-8 py-3 rounded-xl font-bold flex items-center gap-2 ${activeAdminTab === "QUIZZES" ? "bg-white dark:bg-slate-700 text-primary shadow" : "text-slate-500"}`}>
+            <FaClipboardList /> Quizzes
+          </button>
+          <button onClick={() => setActiveAdminTab("EMAIL")} className={`px-8 py-3 rounded-xl font-bold flex items-center gap-2 ${activeAdminTab === "EMAIL" ? "bg-white dark:bg-slate-700 text-primary shadow" : "text-slate-500"}`}>
+            <FaEnvelope /> Email Blaster
+          </button>
+          <button onClick={() => setActiveAdminTab("COURSES")} className={`px-8 py-3 rounded-xl font-bold flex items-center gap-2 ${activeAdminTab === "COURSES" ? "bg-white dark:bg-slate-700 text-primary shadow" : "text-slate-500"}`}>
+            <FaUniversity /> Courses
+          </button>
+          <button onClick={() => setActiveAdminTab("MATERIALS")} className={`px-8 py-3 rounded-xl font-bold flex items-center gap-2 ${activeAdminTab === "MATERIALS" ? "bg-white dark:bg-slate-700 text-primary shadow" : "text-slate-500"}`}>
+            <FaBook /> Materials
+          </button>
+        </div>
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-10">
+        {[
+          { label: "Students", value: stats.total, icon: FaUserGraduate, color: "blue" },
+          { label: "Paid", value: stats.paid, icon: FaCreditCard, color: "green" },
+          { label: "Pending", value: stats.pending, icon: FaClock, color: "amber" },
+          { label: "Revenue", value: isRevenueVisible ? `₹${stats.revenue.toLocaleString('en-IN')}` : "*****", icon: isRevenueVisible ? FaDownload : FaLock, color: "purple", onClick: handleRevenueClick }
+        ].map((s, i) => (
+          <div key={i} onClick={s.onClick} className={`bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm ${s.onClick ? 'cursor-pointer hover:shadow-md transition-all' : ''}`}>
+            <div className={`w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center mb-4`}>
+              <s.icon className="text-primary text-lg" />
+            </div>
+            <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">{s.label}</p>
+            <h3 className="text-2xl font-black mt-1">{s.value}</h3>
+          </div>
+        ))}
+      </div>
+
+      <AnimatePresence mode="wait">
+        {activeAdminTab === "STUDENTS" && (
+          <motion.div key="st" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            {/* Table Section */}
+            <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-xl overflow-hidden">
+              <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center gap-4">
+                <div className="flex gap-4 flex-1">
+                  <div className="relative flex-1 max-w-sm">
+                    <FaSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input type="text" placeholder="Search..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-11 pr-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none" />
+                  </div>
+                  <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 outline-none">
+                    <option value="ALL">All Status</option>
+                    <option value="PAID">Paid</option>
+                    <option value="PENDING">Pending</option>
+                  </select>
+                  <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 outline-none">
+                    <option value="ALL">All Programs</option>
+                    <option value="internship">Internships</option>
+                    <option value="workshop">Workshops</option>
+                    <option value="site-visit">Site Visits</option>
+                  </select>
+                </div>
+                <button onClick={downloadCSV} className="flex items-center gap-2 px-6 py-2.5 bg-green-600 text-white font-bold rounded-xl shadow-lg">
+                  <FaFileCsv /> Export
+                </button>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead className="bg-slate-50 dark:bg-slate-800/50">
+                    <tr>
+                      <th className="px-6 py-4 text-xs font-black text-slate-500 uppercase">Student</th>
+                      <th className="px-6 py-4 text-xs font-black text-slate-500 uppercase">Course / Academic</th>
+                      <th className="px-6 py-4 text-xs font-black text-slate-500 uppercase">Status</th>
+                      <th className="px-6 py-4 text-xs font-black text-slate-500 uppercase text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {filteredEnrollments.map(e => (
+                      <tr key={e.id} className="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+                        <td className="px-6 py-4">
+                          <div className="flex flex-col">
+                            <span className="text-sm font-bold">{e.full_name}</span>
+                            <span className="text-xs text-slate-500">{e.email}</span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex flex-col gap-1.5">
+                            <span className="text-sm font-semibold text-slate-700 dark:text-slate-300 leading-tight">{e.course_title}</span>
+                            <div className="flex items-center gap-2">
+                              {(!e.enrollment_type || e.enrollment_type === 'internship') && (
+                                <span className="px-2 py-0.5 rounded-md bg-indigo-100 text-indigo-700 text-[9px] font-black uppercase tracking-widest inline-block w-max">Internship</span>
+                              )}
+                              {e.enrollment_type === 'workshop' && (
+                                <span className="px-2 py-0.5 rounded-md bg-fuchsia-100 text-fuchsia-700 text-[9px] font-black uppercase tracking-widest inline-block w-max">Workshop</span>
+                              )}
+                              {e.enrollment_type === 'site-visit' && (
+                                <span className="px-2 py-0.5 rounded-md bg-sky-100 text-sky-700 text-[9px] font-black uppercase tracking-widest inline-block w-max">Site Visit</span>
+                              )}
+                              <span className="text-[10px] text-slate-500 truncate max-w-[150px]">{e.college_name || "N/A"}</span>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className={`px-3 py-1 rounded-full text-[10px] font-black ${e.status === "PAID" ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
+                            {e.status}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <button onClick={() => handleViewEnrollment(e)} className="p-2 text-primary hover:bg-primary/10 rounded-lg"><FaEye /></button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </motion.div>
+        )}
+        
+        {activeAdminTab === "LIVE" && (
+          <motion.div key="lv" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div className="lg:col-span-2 space-y-8">
+              <div className="bg-white dark:bg-slate-900 p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-xl">
+                <h3 className="text-xl font-black mb-6 flex items-center gap-3">
+                  <FaBroadcastTower className="text-primary" /> 
+                  {editingSessionId ? "Edit Session" : "Live Session Control"}
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                  <div>
+                    <label className="text-xs font-bold text-slate-500 uppercase block mb-2">Select Course</label>
+                    <select value={newSession.course} onChange={e => setNewSession({...newSession, course: e.target.value})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 border-none rounded-xl outline-none font-bold">
+                      <option value="">Choose Course...</option>
+                      {courses.map(c => <option key={c.id} value={c.title}>{c.title}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                      <label className="text-xs font-bold text-slate-500 uppercase block">Meeting URL / Channel Name</label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <span className="text-[10px] font-bold text-primary uppercase">Native In-App Class</span>
+                        <input type="checkbox" checked={isNativeLiveKit} onChange={(e) => setIsNativeLiveKit(e.target.checked)} className="accent-primary w-3 h-3" />
+                      </label>
+                    </div>
+                    <input type={isNativeLiveKit ? "text" : "url"} placeholder={isNativeLiveKit ? "Enter Channel Name (e.g. flutter_class_1)" : "https://"} value={newSession.url} onChange={e => setNewSession({...newSession, url: e.target.value})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 border-none rounded-xl outline-none font-semibold" />
+                    <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1">
+                      {isNativeLiveKit ? "💡 Students will watch the live class natively inside the NLITedu mobile app using LiveKit." : "💡 External meeting URLs (Google Meet, Zoom, Webex, Teams, etc.) automatically open in native mobile apps."}
+                    </p>
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="text-xs font-bold text-slate-500 uppercase block mb-2">Class Topic / Session Name</label>
+                    <input type="text" placeholder="e.g. Introduction to 3D Modeling" value={newSession.course_title || ""} onChange={e => setNewSession({...newSession, course_title: e.target.value} as any)} className="w-full p-3 bg-slate-50 dark:bg-slate-800 border-none rounded-xl outline-none font-semibold" />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="text-xs font-bold text-slate-500 uppercase block mb-2">Schedule For (Date & Time)</label>
+                    <input type="datetime-local" value={newSession.scheduled_at} onChange={e => setNewSession({...newSession, scheduled_at: e.target.value})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 border-none rounded-xl outline-none" />
+                  </div>
+                </div>
+                <div className="flex gap-4">
+                  <button onClick={() => handleStartLive(false)} disabled={isStartingSession} className="flex-1 py-4 bg-primary text-white font-black rounded-2xl flex items-center justify-center gap-3 shadow-lg shadow-primary/20">
+                    <FaPlay /> {isStartingSession ? "Saving..." : editingSessionId ? "UPDATE SESSION" : "GO LIVE NOW"}
+                  </button>
+                  <button onClick={() => handleStartLive(true)} disabled={isStartingSession || !newSession.scheduled_at} className="flex-1 py-4 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-black rounded-2xl flex items-center justify-center gap-3 border border-slate-200 dark:border-slate-700 disabled:opacity-50">
+                    <FaClock /> {editingSessionId ? "UPDATE SCHEDULE" : "SCHEDULE"}
+                  </button>
+                  {editingSessionId && (
+                    <button onClick={() => { setEditingSessionId(null); setNewSession({ course: "", url: "", scheduled_at: "", course_title: "" }); }} className="px-6 py-4 bg-red-50 text-red-500 font-black rounded-2xl">
+                      CANCEL
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-xl overflow-hidden">
+                <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                  <span className="font-black text-xs uppercase text-slate-500">Live & Scheduled Sessions</span>
+                </div>
+                <div className="divide-y divide-slate-100">
+                  {liveSessions.length === 0 ? <p className="p-10 text-center text-slate-400 italic">No classes found.</p> : liveSessions.map(s => (
+                    <div key={s.id} className="p-6 flex justify-between items-center hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-black uppercase text-sm">{s.course_title}</h4>
+                          {s.is_live ? (
+                            <span className="flex items-center gap-1.5">
+                              <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                              <span className="text-[10px] font-black text-red-500 uppercase">Live</span>
+                            </span>
+                          ) : s.started_at && !s.is_live ? (
+                            <span className="px-2 py-0.5 bg-slate-100 text-slate-500 text-[8px] font-black rounded-full uppercase">Ended</span>
+                          ) : (
+                            <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-[8px] font-black rounded-full uppercase">Scheduled</span>
+                          )}
+                        </div>
+                        <p className="text-[10px] text-slate-400 truncate max-w-[250px] mt-0.5">{s.session_url}</p>
+                        {s.scheduled_at && <p className="text-[10px] text-primary font-bold mt-1">Date: {new Date(s.scheduled_at).toLocaleString()}</p>}
+                      </div>
+                      <div className="flex gap-2">
+                        <button 
+                          onClick={() => handleDownloadAttendance(s.id, s.course_title, s.scheduled_at || s.started_at || new Date().toISOString())} 
+                          className="p-2.5 bg-green-50 text-green-600 rounded-xl hover:bg-green-600 hover:text-white transition-all shadow-sm" 
+                          title="Download Attendance"
+                        >
+                          <FaDownload size={12} />
+                        </button>
+                        <button 
+                          onClick={() => {
+                            setEditingSessionId(s.id);
+                            setNewSession({
+                              course: s.course_title,
+                              url: s.session_url,
+                              scheduled_at: s.scheduled_at ? new Date(s.scheduled_at).toISOString().slice(0, 16) : "",
+                              course_title: s.course_title
+                            });
+                            window.scrollTo({ top: 0, behavior: "smooth" });
+                          }}
+                          className="p-2.5 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-600 hover:text-white transition-all shadow-sm"
+                          title="Edit Session"
+                        >
+                          <FaEdit size={12} />
+                        </button>
+                        {s.session_url.startsWith('livekit://') || s.session_url.startsWith('agora://') ? (
+                          <>
+                            <a 
+                              href={`/admin/broadcast?channel=${s.session_url.replace('livekit://', '').replace('agora://', '')}`} 
+                              target="_blank" 
+                              className="px-4 py-2 bg-primary/10 text-primary text-[10px] font-black rounded-xl hover:bg-primary hover:text-white transition-all flex items-center gap-1.5" 
+                              title="Open Broadcast Studio"
+                            >
+                              <FaVideo size={10} /> STUDIO
+                            </a>
+                            {!s.is_live ? (
+                              <button 
+                                onClick={() => handleActivateScheduled(s.id)} 
+                                className="px-4 py-2 bg-green-50 text-green-600 text-[10px] font-black rounded-xl hover:bg-green-600 hover:text-white transition-all"
+                              >
+                                START
+                              </button>
+                            ) : (
+                              <button 
+                                onClick={() => handleEndLive(s.id)} 
+                                className="px-4 py-2 bg-red-50 text-red-600 text-[10px] font-black rounded-xl hover:bg-red-600 hover:text-white transition-all"
+                              >
+                                END
+                              </button>
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            {!s.is_live ? (
+                              <button 
+                                onClick={() => handleActivateScheduled(s.id)} 
+                                className="px-4 py-2 bg-green-50 text-green-600 text-[10px] font-black rounded-xl hover:bg-green-600 hover:text-white transition-all"
+                              >
+                                START
+                              </button>
+                            ) : (
+                              <button 
+                                onClick={() => handleEndLive(s.id)} 
+                                className="px-4 py-2 bg-red-50 text-red-600 text-[10px] font-black rounded-xl hover:bg-red-600 hover:text-white transition-all"
+                              >
+                                END
+                              </button>
+                            )}
+                          </>
+                        )}
+                        <button onClick={() => handleDeleteSession(s.id)} className="p-2 text-slate-300 hover:text-red-500"><FaTrash size={12} /></button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl overflow-hidden shadow-inner flex flex-col h-[600px]">
+              <div className="p-6 bg-white dark:bg-slate-900 border-b flex justify-between items-center">
+                <h3 className="font-black text-sm flex items-center gap-2"><FaUsers className="text-primary" /> Live Feed</h3>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                {liveAttendance.map(a => (
+                  <div key={a.id} className="bg-white dark:bg-slate-800 p-4 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700">
+                    <p className="text-sm font-bold">{a.student_name}</p>
+                    <p className="text-[10px] text-slate-500">{a.student_email}</p>
+                    <p className="text-[9px] text-primary font-bold mt-1 uppercase tracking-tighter">Joined At {new Date(a.joined_at).toLocaleTimeString()}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </motion.div>
+        )}
+
+          {activeAdminTab === "RECORDINGS" && (
+            <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                {/* Add Recording Form */}
+                <div className="lg:col-span-1 bg-white dark:bg-slate-900 rounded-[32px] p-8 shadow-sm border border-slate-100">
+                  <h3 className="text-2xl font-black mb-6">Add Recording</h3>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-xs font-bold text-slate-500 uppercase block mb-2">Select Course</label>
+                      <select 
+                        value={newRecording.course} 
+                        onChange={e => setNewRecording({...newRecording, course: e.target.value})}
+                        className="w-full p-3 bg-slate-50 dark:bg-slate-800 border-none rounded-xl outline-none font-bold text-sm"
+                      >
+                        <option value="">Choose Course...</option>
+                        {Array.from(new Set(enrollments.map(e => e.course_title))).map(c => (
+                          <option key={c} value={c}>{c}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-500 uppercase block mb-2">Class Topic</label>
+                      <input type="text" placeholder="e.g. Java Basics - Day 1" value={newRecording.topic} onChange={e => setNewRecording({...newRecording, topic: e.target.value})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 border-none rounded-xl outline-none font-semibold text-sm" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-500 uppercase block mb-2">Video URL</label>
+                      <input type="url" placeholder="YouTube/Drive Link" value={newRecording.url} onChange={e => setNewRecording({...newRecording, url: e.target.value})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 border-none rounded-xl outline-none font-semibold text-sm" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-500 uppercase block mb-2">Class Date</label>
+                      <input type="date" value={newRecording.date} onChange={e => setNewRecording({...newRecording, date: e.target.value})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 border-none rounded-xl outline-none font-semibold text-sm" />
+                    </div>
+                    <button 
+                      onClick={handleAddRecording}
+                      disabled={isAddingRecording}
+                      className="w-full py-4 bg-indigo-600 text-white font-black rounded-2xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 uppercase text-xs tracking-widest"
+                    >
+                      {isAddingRecording ? "ADDING..." : "ADD RECORDING"}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Grouped Recordings List */}
+                <div className="lg:col-span-2 bg-white dark:bg-slate-900 rounded-[32px] p-8 shadow-sm border border-slate-100">
+                  <div className="flex items-center justify-between mb-8">
+                    <h3 className="text-2xl font-black">Course Recordings</h3>
+                    <div className="px-4 py-1.5 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 rounded-full text-[10px] font-black tracking-widest uppercase">
+                      {recordedSessions.length} TOTAL CLASSES
+                    </div>
+                  </div>
+
+                  <div className="space-y-10 max-h-[700px] overflow-y-auto pr-4 custom-scrollbar">
+                    {recordedSessions.length === 0 ? (
+                      <div className="text-center py-20 bg-slate-50 dark:bg-slate-800/50 rounded-[24px] border-2 border-dashed border-slate-200 dark:border-slate-700">
+                        <FaPlayCircle size={48} className="mx-auto text-slate-300 mb-4" />
+                        <p className="text-slate-400 font-bold uppercase text-xs tracking-widest">No recordings uploaded yet.</p>
+                      </div>
+                    ) : (
+                      Object.entries(
+                        recordedSessions.reduce((acc: any, session) => {
+                          const course = session.course_title;
+                          if (!acc[course]) acc[course] = [];
+                          acc[course].push(session);
+                          return acc;
+                        }, {})
+                      ).map(([course, sessions]: [string, any]) => (
+                        <div key={course} className="space-y-5">
+                          <div className="flex items-center gap-4 sticky top-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur py-3 z-10">
+                            <div className="w-2 h-2 bg-indigo-600 rounded-full shadow-[0_0_10px_rgba(79,70,229,0.5)]"></div>
+                            <h4 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em]">{course}</h4>
+                            <div className="h-px flex-1 bg-slate-100 dark:bg-slate-800"></div>
+                            <span className="text-[10px] font-black px-3 py-1 bg-slate-50 dark:bg-slate-800 rounded-lg text-slate-400">
+                              {sessions.length} CLASSES
+                            </span>
+                          </div>
+                          
+                          <div className="grid gap-3">
+                            {sessions.map((r: any) => (
+                              <div key={r.id} className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-transparent hover:border-indigo-100 dark:hover:border-indigo-900/30 hover:bg-white dark:hover:bg-slate-800 transition-all group">
+                                <div className="flex items-center gap-4">
+                                  <div className="w-10 h-10 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform">
+                                    <FaPlay size={16} className="ml-0.5" />
+                                  </div>
+                                  <div>
+                                    <h5 className="font-bold text-sm tracking-tight">{r.topic}</h5>
+                                    <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">
+                                      {new Date(r.recorded_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
+                                    </p>
+                                  </div>
+                                </div>
+                                
+                                <div className="flex items-center gap-2 opacity-40 group-hover:opacity-100 transition-opacity">
+                                  <a href={r.video_url} target="_blank" rel="noopener noreferrer" className="p-2.5 bg-white dark:bg-slate-700 text-indigo-600 rounded-xl hover:bg-indigo-600 hover:text-white transition-all shadow-sm">
+                                    <FaExternalLinkAlt size={12} />
+                                  </a>
+                                  <button onClick={() => handleDeleteRecording(r.id)} className="p-2.5 bg-white dark:bg-slate-700 text-red-500 rounded-xl hover:bg-red-500 hover:text-white transition-all shadow-sm">
+                                    <FaTrash size={12} />
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+        {activeAdminTab === "QUIZZES" && (
+          <motion.div key="qz" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div className="lg:col-span-1 space-y-8">
+              {/* Create Quiz Form */}
+              <div className="bg-white dark:bg-slate-900 p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-xl">
+                <h3 className="text-xl font-black mb-6 flex items-center gap-3"><FaPlus className="text-primary" /> Create Test</h3>
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-xs font-bold text-slate-500 uppercase block mb-2">Test Title</label>
+                    <input type="text" placeholder="e.g. Weekly Aptitude Test" value={newQuiz.title} onChange={e => setNewQuiz({...newQuiz, title: e.target.value})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 border-none rounded-xl outline-none" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-slate-500 uppercase block mb-2">Description</label>
+                    <textarea placeholder="Instructions..." value={newQuiz.description} onChange={e => setNewQuiz({...newQuiz, description: e.target.value})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 border-none rounded-xl outline-none h-24" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-xs font-bold text-slate-500 uppercase block mb-2">Duration (mins)</label>
+                      <input type="number" min="1" value={newQuiz.duration_minutes} onChange={e => setNewQuiz({...newQuiz, duration_minutes: parseInt(e.target.value) || 30})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 border-none rounded-xl outline-none" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-500 uppercase block mb-2">Course Target</label>
+                      <select value={newQuiz.course_slug} onChange={e => setNewQuiz({...newQuiz, course_slug: e.target.value})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 border-none rounded-xl outline-none">
+                        <option value="global">Global (All Users)</option>
+                        {courses.map(c => <option key={c.slug} value={c.slug}>{c.title}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-slate-500 uppercase block mb-2">Scheduled Date & Time (Optional)</label>
+                    <input type="datetime-local" value={newQuiz.scheduled_for || ""} onChange={e => setNewQuiz({...newQuiz, scheduled_for: e.target.value})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 border-none rounded-xl outline-none" />
+                  </div>
+                  <div className="flex gap-3 mt-4">
+                    <button onClick={handleCreateQuiz} disabled={isCreatingQuiz || !newQuiz.title} className="flex-1 py-4 bg-primary text-white font-black rounded-2xl flex items-center justify-center gap-3 shadow-lg shadow-primary/20 disabled:opacity-50 disabled:cursor-not-allowed">
+                      {isCreatingQuiz ? "Saving..." : editingQuizId ? "Update Test" : "Create Test"}
+                    </button>
+                    {editingQuizId && (
+                      <button onClick={() => { setEditingQuizId(null); setNewQuiz({ title: "", description: "", course_slug: "global", duration_minutes: 30, scheduled_for: "" }); }} className="py-4 px-6 bg-slate-100 text-slate-500 font-black rounded-2xl hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700">
+                        Cancel
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="lg:col-span-2">
+              {/* List of Quizzes */}
+              <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-xl overflow-hidden">
+                <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                  <span className="font-black text-xs uppercase text-slate-500">Active Tests</span>
+                </div>
+                <div className="divide-y divide-slate-100">
+                  {quizzes.length === 0 ? <p className="p-10 text-center text-slate-400 italic">No tests created yet.</p> : quizzes.map(q => (
+                    <div key={q.id} className="p-6 flex justify-between items-center hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-3 mb-1">
+                          <h4 className="font-black text-lg">{q.title}</h4>
+                          <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-[10px] font-bold rounded-full">{q.course_slug}</span>
+                          {q.is_active ? (
+                            <span className="px-2 py-0.5 bg-green-100 text-green-700 text-[10px] font-bold rounded-full">LIVE</span>
+                          ) : (
+                            <span className="px-2 py-0.5 bg-slate-100 text-slate-500 text-[10px] font-bold rounded-full">OFFLINE</span>
+                          )}
+                        </div>
+                        <p className="text-xs text-slate-500 mb-2">{q.description}</p>
+                        <div className="flex gap-4 text-xs font-bold text-slate-400">
+                          <span className="flex items-center gap-1"><FaClock /> {q.duration_minutes} mins</span>
+                          <span>• {new Date(q.created_at).toLocaleDateString()}</span>
+                          {q.scheduled_for && <span className="text-primary">• Scheduled: {new Date(q.scheduled_for).toLocaleString()}</span>}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3 ml-4">
+                        <button 
+                          onClick={() => handleToggleQuizActive(q.id, q.is_active)} 
+                          className={`px-3 py-2 text-xs font-black rounded-xl transition-all ${
+                            q.is_active 
+                              ? "bg-green-100 text-green-600 hover:bg-green-600 hover:text-white" 
+                              : "bg-slate-100 text-slate-600 hover:bg-slate-600 hover:text-white dark:bg-slate-800 dark:text-slate-300"
+                          }`}
+                          title={q.is_active ? "Turn Off Quiz" : "Turn On Quiz"}
+                        >
+                          {q.is_active ? "LIVE" : "OFF"}
+                        </button>
+                        <button onClick={() => handleDownloadQuizResults(q.id, q.title)} className="p-3 bg-green-50 text-green-600 rounded-xl hover:bg-green-600 hover:text-white transition-all" title="Download Results"><FaDownload /></button>
+                        <button onClick={() => {
+                          setNewQuiz({
+                            title: q.title,
+                            description: q.description || "",
+                            course_slug: q.course_slug,
+                            duration_minutes: q.duration_minutes,
+                            scheduled_for: q.scheduled_for ? new Date(q.scheduled_for).toISOString().slice(0, 16) : ""
+                          });
+                          setEditingQuizId(q.id);
+                          window.scrollTo({ top: 0, behavior: 'smooth' });
+                        }} className="p-3 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-600 hover:text-white transition-all" title="Edit Test"><FaEdit /></button>
+                        <button onClick={() => { setSelectedQuiz(q); fetchQuizQuestions(q.id); }} className="px-4 py-2 bg-primary/10 text-primary text-sm font-black rounded-xl hover:bg-primary hover:text-white transition-all">Questions</button>
+                        <button onClick={() => handleDeleteQuiz(q.id)} className="p-3 bg-red-50 text-red-600 rounded-xl hover:bg-red-600 hover:text-white transition-all"><FaTrash /></button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+
+        {activeAdminTab === "EMAIL" && (
+          <motion.div key="em" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="max-w-4xl mx-auto">
+            <div className="bg-white dark:bg-slate-900 p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-xl">
+              <h3 className="text-xl font-black mb-6 flex items-center gap-3"><FaEnvelope className="text-primary" /> Email Blaster</h3>
+              <p className="text-sm text-slate-500 mb-8">Send updates, test links, and announcements directly to enrolled students.</p>
+              
+              <div className="space-y-6">
+                <div>
+                  <label className="text-xs font-bold text-slate-500 uppercase block mb-2">Audience Target</label>
+                  <select value={emailBlast.audience} onChange={e => setEmailBlast({...emailBlast, audience: e.target.value})} className="w-full p-4 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl outline-none font-bold">
+                    <option value="ALL">All Enrolled Students (Paid & Non-Paid)</option>
+                    <option value="ALL_REGISTERED">All Registered Platform Users</option>
+                    {courses.map(c => <option key={c.slug} value={c.slug}>{c.title} Students</option>)}
+                  </select>
+                </div>
+                
+                <div>
+                  <label className="text-xs font-bold text-slate-500 uppercase block mb-2">Subject Line</label>
+                  <input type="text" placeholder="e.g. Important Update: New Quiz Available!" value={emailBlast.subject} onChange={e => setEmailBlast({...emailBlast, subject: e.target.value})} className="w-full p-4 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl outline-none" />
+                </div>
+                
+                <div>
+                  <label className="text-xs font-bold text-slate-500 uppercase block mb-2">Message Body (Supports HTML)</label>
+                  <textarea placeholder="<h1>Hello Students!</h1><p>...</p>" value={emailBlast.message} onChange={e => setEmailBlast({...emailBlast, message: e.target.value})} className="w-full p-4 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl outline-none min-h-[250px] font-mono text-sm" />
+                </div>
+                
+                <button onClick={handleSendEmailBlast} disabled={isSendingEmail || !emailBlast.subject || !emailBlast.message} className="w-full py-4 bg-primary text-white font-black rounded-2xl flex items-center justify-center gap-3 shadow-lg shadow-primary/20 mt-4 disabled:opacity-50 disabled:cursor-not-allowed text-lg">
+                  <FaBroadcastTower /> {isSendingEmail ? "Broadcasting Emails..." : "Send Blast"}
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+        {activeAdminTab === "COURSES" && (
+          <motion.div key="co" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+             {/* Course Management UI */}
+             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+               {/* Left: Course List */}
+               <div className="lg:col-span-2 space-y-4">
+                 <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-xl overflow-hidden">
+                   <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-800/50">
+                     <div className="flex items-center gap-4">
+                       <h3 className="font-black text-xl flex items-center gap-2"><FaUniversity className="text-primary" /> All Courses</h3>
+                       <span className="bg-primary/10 text-primary px-3 py-1 rounded-full text-xs font-bold">{courses.length} Active</span>
+                     </div>
+                     <select 
+                       value={courseFilter} 
+                       onChange={e => setCourseFilter(e.target.value)} 
+                       className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2 outline-none font-semibold text-sm"
+                     >
+                       <option value="ALL">All Categories</option>
+                       <option value="FOUNDATION">Foundation Courses</option>
+                       <option value="INTERNSHIP">Internships</option>
+                       <option value="WORKSHOP">Workshops</option>
+                       <optgroup label="Subjects">
+                         {Array.from(new Set(courses.map(c => c.category).filter(Boolean))).map(cat => (
+                           <option key={cat} value={cat}>{cat}</option>
+                         ))}
+                       </optgroup>
+                     </select>
+                   </div>
+                   <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                     {courses.length === 0 && (
+                       <div className="p-12 text-center text-slate-400 font-bold">No courses found in database.</div>
+                     )}
+                     {courses.filter(course => {
+                       if (courseFilter === "ALL") return true;
+                       if (courseFilter === "FOUNDATION") return course.program_type === "Foundation" || !course.program_type;
+                       if (courseFilter === "INTERNSHIP") return course.program_type === "Internship";
+                       if (courseFilter === "WORKSHOP") return course.program_type === "Workshop";
+                       return course.category === courseFilter;
+                     }).map(course => (
+                       <div key={course.id} className="p-6 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+                         <div className="flex items-center gap-4">
+                           <div className="w-12 h-12 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center font-black text-primary border border-slate-200 dark:border-slate-700">
+                             {course.category ? course.category[0] : 'C'}
+                           </div>
+                           <div>
+                             <h4 className="font-bold">
+                               <span className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded uppercase tracking-wider mr-2">
+                                 {course.program_type || 'Foundation'}
+                               </span>
+                               {course.title}
+                             </h4>
+                             <div className="flex gap-4 mt-1">
+                               <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">₹{course.govt_price} Govt</span>
+                               <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">{course.duration || 'Flexible'}</span>
+                               {course.is_bestseller && <span className="text-[10px] font-black text-green-500 uppercase tracking-widest">Bestseller</span>}
+                             </div>
+                           </div>
+                         </div>
+                         <div className="flex gap-2">
+                           <button onClick={() => handleEditCourse(course)} className="p-3 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-600 hover:text-white transition-all shadow-sm" title="Edit Course"><FaEdit /></button>
+                           <button onClick={() => handleDeleteCourse(course.id)} className="p-3 bg-red-50 text-red-600 rounded-xl hover:bg-red-600 hover:text-white transition-all shadow-sm" title="Delete Course"><FaTrash /></button>
+                         </div>
+                       </div>
+                     ))}
+                   </div>
+                 </div>
+               </div>
+
+               {/* Right: Add/Edit Form */}
+               <div className="lg:col-span-1">
+                 <div className="bg-white dark:bg-slate-900 p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-xl sticky top-24">
+                   <h3 className="text-xl font-black mb-6 flex items-center gap-2">
+                     {editingCourseId ? <><FaEdit className="text-blue-500" /> Edit Course</> : <><FaPlus className="text-green-500" /> Add New Course</>}
+                   </h3>
+                   
+                   <div className="space-y-4">
+                     <div>
+                       <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Course Title</label>
+                       <input type="text" value={newCourse.title} onChange={e => setNewCourse({...newCourse, title: e.target.value})} className="w-full p-4 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl outline-none focus:border-primary transition-all font-semibold" placeholder="e.g. AutoCAD Mastery" />
+                     </div>
+                     <div>
+                       <label className="text-xs font-bold text-slate-500 uppercase block mb-1">URL Slug</label>
+                       <input type="text" value={newCourse.slug} onChange={e => setNewCourse({...newCourse, slug: e.target.value})} className="w-full p-4 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl outline-none focus:border-primary transition-all" placeholder="e.g. autocad-mastery" />
+                     </div>
+                     <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Govt Price (₹)</label>
+                          <input type="number" value={newCourse.govt_price} onChange={e => setNewCourse({...newCourse, govt_price: parseInt(e.target.value)})} className="w-full p-4 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl outline-none" />
+                        </div>
+                        <div>
+                          <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Private Price (₹)</label>
+                          <input type="number" value={newCourse.pvt_price} onChange={e => setNewCourse({...newCourse, pvt_price: parseInt(e.target.value)})} className="w-full p-4 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl outline-none" />
+                        </div>
+                     </div>
+                     <div>
+                        <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Job/Training Price (₹)</label>
+                        <input type="number" value={newCourse.job_price} onChange={e => setNewCourse({...newCourse, job_price: parseInt(e.target.value)})} className="w-full p-4 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl outline-none" />
+                     </div>
+                     <div className="grid grid-cols-2 gap-4">
+                       <div>
+                         <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Subject Category</label>
+                         <select value={newCourse.category} onChange={e => setNewCourse({...newCourse, category: e.target.value})} className="w-full p-4 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl outline-none font-bold">
+                           <option value="DESIGN">Design</option>
+                           <option value="PROGRAMMING">Programming</option>
+                           <option value="ENGINEERING">Engineering</option>
+                           <option value="DATA SCIENCE">Data Science</option>
+                           <option value="AI">AI & Machine Learning</option>
+                           <option value="MANAGEMENT">Management</option>
+                           <option value="GENERAL">General</option>
+                         </select>
+                       </div>
+                       <div>
+                         <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Program Type</label>
+                         <select value={newCourse.program_type} onChange={e => setNewCourse({...newCourse, program_type: e.target.value})} className="w-full p-4 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl outline-none font-bold">
+                           <option value="Foundation">Foundation</option>
+                           <option value="Internship">Internship</option>
+                           <option value="Workshop">Workshop</option>
+                         </select>
+                       </div>
+                     </div>
+                     <div>
+                       <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Description</label>
+                       <textarea value={newCourse.description} onChange={e => setNewCourse({...newCourse, description: e.target.value})} className="w-full p-4 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl outline-none min-h-[120px] text-sm" placeholder="Short course summary..." />
+                     </div>
+
+                     <div className="flex items-center gap-3 p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700">
+                       <input type="checkbox" id="bestseller" checked={newCourse.is_bestseller} onChange={e => setNewCourse({...newCourse, is_bestseller: e.target.checked})} className="w-5 h-5 accent-primary" />
+                       <label htmlFor="bestseller" className="text-sm font-bold cursor-pointer">Mark as Bestseller</label>
+                     </div>
+
+                     <button onClick={handleSaveCourse} disabled={isCreatingCourse} className="w-full py-4 bg-primary text-white font-black rounded-2xl shadow-lg shadow-primary/20 mt-4 disabled:opacity-50 flex items-center justify-center gap-2">
+                       {isCreatingCourse ? "Saving..." : <><FaPlus /> {editingCourseId ? "Update Course" : "Create Course"}</>}
+                     </button>
+                     {editingCourseId && (
+                        <button onClick={() => {
+                          setEditingCourseId(null);
+                          setNewCourse({
+                            title: "", slug: "", description: "", category: "DESIGN", program_type: "Foundation",
+                            govt_price: 1999, pvt_price: 2999, job_price: 3999,
+                            duration: "12 Weeks", level: "Intermediate", is_bestseller: false,
+                            instructor_name: "NLITedu Official", highlights: ["", "", ""], syllabus: ["", "", ""]
+                          });
+                        }} className="w-full py-2 text-slate-500 font-bold hover:text-red-500 transition-colors">Cancel Editing</button>
+                     )}
+                   </div>
+                 </div>
+               </div>
+              </div>
+           </motion.div>
+        )}
+
+
+        {activeAdminTab === "MATERIALS" && (
+          <motion.div key="mat" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-xl overflow-hidden p-8">
+              <h3 className="text-xl font-black mb-6">Study Materials</h3>
+              
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                {/* Upload Form */}
+                <div className="lg:col-span-1 bg-slate-50 dark:bg-slate-800 p-6 rounded-2xl border border-slate-100 dark:border-slate-700 h-fit">
+                  <h4 className="font-bold text-lg mb-4 text-primary flex items-center gap-2">
+                    {editingMaterialId ? <FaPen /> : <FaPlus />} {editingMaterialId ? "Edit Material" : "Add Material"}
+                  </h4>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-xs font-bold text-slate-500 uppercase block mb-2">Course / Topic</label>
+                      <select value={newMaterial.course_title} onChange={e => setNewMaterial({...newMaterial, course_title: e.target.value})} className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none">
+                        <option value="" disabled>Select an Internship / Course</option>
+                        {courses.map(c => <option key={c.id} value={c.title}>{c.title}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-500 uppercase block mb-2">Material Title</label>
+                      <input type="text" placeholder="e.g. Final Semester Notes" value={newMaterial.topic} onChange={e => setNewMaterial({...newMaterial, topic: e.target.value})} className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none" />
+                    </div>
+                    {IS_STORAGE_LOCKED ? (
+                      <div 
+                        onClickCapture={(e) => { e.preventDefault(); e.stopPropagation(); setShowUpgradeCard(true); }}
+                        className="cursor-pointer group relative"
+                      >
+                        <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/40 dark:bg-slate-900/40 backdrop-blur-[1px] rounded-xl opacity-0 group-hover:opacity-100 transition-opacity">
+                          <span className="bg-primary text-white text-xs font-bold px-3 py-1 rounded-full shadow-lg flex items-center gap-2"><FaLock /> Unlock Storage</span>
+                        </div>
+                        <label className="text-xs font-bold text-slate-500 uppercase block mb-2">Upload Document (PDF)</label>
+                        <input disabled type="file" accept=".pdf,.doc,.docx" className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none opacity-60 pointer-events-none" />
+                        <div className="mt-2 text-center text-xs text-slate-400 font-bold">OR</div>
+                        <input disabled type="url" placeholder="Drive Link / External URL" className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none mt-2 opacity-60 pointer-events-none" />
+                      </div>
+                    ) : (
+                      <div>
+                        <label className="text-xs font-bold text-slate-500 uppercase block mb-2">Upload Document (PDF)</label>
+                        <input type="file" accept=".pdf,.doc,.docx" onChange={e => setMaterialFile(e.target.files?.[0] || null)} className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none" />
+                        <div className="mt-2 text-center text-xs text-slate-400 font-bold">OR</div>
+                        <input type="url" placeholder="Drive Link / External URL" value={newMaterial.document_url} onChange={e => setNewMaterial({...newMaterial, document_url: e.target.value})} className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none mt-2" />
+                      </div>
+                    )}
+                    <button onClick={handleAddMaterial} disabled={isAddingMaterial} className="w-full py-3 bg-primary text-white font-black rounded-xl shadow-lg disabled:opacity-50 mt-2">
+                      {isAddingMaterial ? "Uploading..." : (editingMaterialId ? "Update Material" : "Upload Material")}
+                    </button>
+                    {editingMaterialId && (
+                      <button onClick={() => {
+                        setEditingMaterialId(null);
+                        setNewMaterial({ course_title: "", topic: "", document_url: "" });
+                        setMaterialFile(null);
+                      }} className="w-full py-2 text-slate-500 font-bold hover:text-red-500 transition-colors">Cancel Editing</button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Materials List */}
+                <div className="lg:col-span-2">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {studyMaterials.map(m => (
+                      <div key={m.id} className="bg-slate-50 dark:bg-slate-800 p-5 rounded-2xl border border-slate-100 dark:border-slate-700 flex flex-col justify-between">
+                        <div>
+                          <div className="flex justify-between items-start mb-2">
+                            <span className="text-xs font-bold text-primary bg-primary/10 px-2 py-1 rounded-md">{m.course_title}</span>
+                            <div className="flex gap-3">
+                              <button onClick={() => handleEditMaterial(m)} className="text-slate-400 hover:text-primary transition-colors"><FaPen /></button>
+                              <button onClick={() => handleDeleteMaterial(m.id)} className="text-slate-400 hover:text-red-500 transition-colors"><FaTrash /></button>
+                            </div>
+                          </div>
+                          <h4 className="font-bold text-lg mb-1">{m.topic}</h4>
+                          <p className="text-xs text-slate-500">{new Date(m.created_at).toLocaleDateString()}</p>
+                        </div>
+                        <a href={m.document_url} target="_blank" rel="noopener noreferrer" className="mt-4 flex items-center justify-center gap-2 w-full py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+                          <FaExternalLinkAlt /> Open Document
+                        </a>
+                      </div>
+                    ))}
+                    {studyMaterials.length === 0 && (
+                      <div className="col-span-2 text-center p-8 text-slate-500 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-dashed border-slate-300 dark:border-slate-600">
+                        No materials uploaded yet.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+
+      <AnimatePresence>
+        {selectedEnrollment && <EnrollmentDetail enrollment={selectedEnrollment} onClose={() => setSelectedEnrollment(null)} />}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {selectedQuiz && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden border border-slate-200 dark:border-slate-800">
+              
+              <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-800/50">
+                <div>
+                  <h3 className="font-black text-xl">{selectedQuiz.title} - Questions</h3>
+                  <p className="text-xs text-slate-500 mt-1">Add or remove questions for this test.</p>
+                </div>
+                <button onClick={() => setSelectedQuiz(null)} className="p-2 bg-slate-200 dark:bg-slate-700 text-slate-500 rounded-xl hover:bg-red-100 hover:text-red-600 transition-colors"><FaTrash className="opacity-0" style={{display: 'none'}}/><span className="text-xl leading-none">&times;</span></button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-6 grid grid-cols-1 md:grid-cols-2 gap-8 bg-slate-50/50 dark:bg-slate-900">
+                {/* Add Question Form */}
+                <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm h-fit">
+                  <h4 className="font-black text-sm uppercase text-slate-500 mb-4 flex items-center gap-2"><FaPlus className="text-primary"/> New Question</h4>
+                  
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-xs font-bold text-slate-500 uppercase block mb-2">Question Text</label>
+                      <textarea placeholder="What is..." value={newQuestion.question_text} onChange={e => setNewQuestion({...newQuestion, question_text: e.target.value})} className="w-full p-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none" />
+                    </div>
+                    
+                    <div>
+                      <label className="text-xs font-bold text-slate-500 uppercase block mb-2">Options & Correct Answer</label>
+                      <div className="space-y-2">
+                        {[0, 1, 2, 3].map(i => (
+                          <div key={i} className="flex items-center gap-3">
+                            <input type="radio" name="correct_option" checked={newQuestion.correct_index === i} onChange={() => setNewQuestion({...newQuestion, correct_index: i})} className="w-4 h-4 text-primary" />
+                            <input type="text" placeholder={`Option ${i + 1}`} value={newQuestion.options[i]} onChange={e => {
+                              const newOpts = [...newQuestion.options];
+                              newOpts[i] = e.target.value;
+                              setNewQuestion({...newQuestion, options: newOpts});
+                            }} className="flex-1 p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none text-sm" />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-bold text-slate-500 uppercase block mb-2">Points</label>
+                      <input type="number" min="1" value={newQuestion.points} onChange={e => setNewQuestion({...newQuestion, points: parseInt(e.target.value) || 1})} className="w-full p-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none" />
+                    </div>
+
+                    <div className="flex gap-3 mt-4">
+                      <button onClick={handleAddQuestion} disabled={!newQuestion.question_text || newQuestion.options.some(o => !o)} className="flex-1 py-3 bg-primary text-white font-black rounded-xl shadow-lg disabled:opacity-50">
+                        {editingQuestionId ? "Update Question" : "Add Question"}
+                      </button>
+                      {editingQuestionId && (
+                        <button onClick={() => { setEditingQuestionId(null); setNewQuestion({ question_text: "", options: ["", "", "", ""], correct_index: 0, points: 1 }); }} className="py-3 px-4 bg-slate-100 text-slate-500 font-black rounded-xl hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800">
+                          Cancel
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Question List */}
+                <div className="space-y-4">
+                  <h4 className="font-black text-sm uppercase text-slate-500 mb-4">Existing Questions ({quizQuestions.length})</h4>
+                  {quizQuestions.length === 0 ? (
+                    <div className="p-8 text-center bg-white dark:bg-slate-800 border border-dashed border-slate-300 dark:border-slate-600 rounded-2xl text-slate-400">
+                      No questions added yet.
+                    </div>
+                  ) : quizQuestions.map((q, idx) => (
+                    <div key={q.id} className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm relative group">
+                      <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button onClick={() => {
+                          setNewQuestion({
+                            question_text: q.question_text,
+                            options: [...q.options],
+                            correct_index: q.correct_index,
+                            points: q.points
+                          });
+                          setEditingQuestionId(q.id);
+                        }} className="p-2 text-slate-300 hover:text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"><FaEdit /></button>
+                        <button onClick={() => handleDeleteQuestion(q.id)} className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><FaTrash /></button>
+                      </div>
+                      <div className="flex gap-3 mb-3 pr-8">
+                        <span className="font-black text-primary">{idx + 1}.</span>
+                        <p className="font-bold text-sm">{q.question_text}</p>
+                      </div>
+                      <div className="grid grid-cols-1 gap-2 pl-6">
+                        {q.options.map((opt, i) => (
+                          <div key={i} className={`text-xs p-2 rounded-lg border ${q.correct_index === i ? 'bg-green-50 border-green-200 text-green-700 font-bold' : 'bg-slate-50 border-slate-100 text-slate-600 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-400'}`}>
+                            {opt} {q.correct_index === i && '✓'}
+                          </div>
+                        ))}
+                      </div>
+                      <div className="mt-3 pl-6 text-[10px] font-bold text-slate-400 uppercase">
+                        Points: {q.points}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {showUpgradeCard && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+            <motion.div initial={{ scale: 0.9, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.9, opacity: 0, y: 20 }} className="bg-white dark:bg-slate-900 rounded-[2rem] shadow-[0_20px_60px_-15px_rgba(0,0,0,0.5)] w-full max-w-md border border-white/20 dark:border-slate-800 relative">
+              
+              {/* Premium Glow Effect Behind the Header */}
+              <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-40 bg-indigo-500/20 blur-3xl rounded-full pointer-events-none"></div>
+
+              <div className="bg-slate-900 p-6 sm:p-8 text-center text-white relative overflow-hidden border-b border-white/10 shrink-0">
+                <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/stardust.png')] opacity-20"></div>
+                
+                {/* Decorative Premium Glow */}
+                <div className="absolute -top-10 -right-10 w-40 h-40 bg-indigo-500/30 blur-3xl rounded-full"></div>
+                <div className="absolute -bottom-10 -left-10 w-40 h-40 bg-purple-500/30 blur-3xl rounded-full"></div>
+
+                <div className="w-16 h-16 sm:w-20 sm:h-20 bg-gradient-to-br from-amber-400 to-orange-600 rounded-full flex items-center justify-center mx-auto mb-3 sm:mb-4 shadow-[0_0_30px_rgba(251,191,36,0.4)] border-2 border-amber-300/50 backdrop-blur-md relative z-10">
+                  <FaLock className="text-2xl sm:text-3xl text-white drop-shadow-md" />
+                </div>
+                <h3 className="font-black text-xl sm:text-2xl tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-white to-slate-300 relative z-10 leading-tight">Storage Limit Reached</h3>
+                <p className="text-amber-400 mt-2 text-[10px] sm:text-xs font-bold tracking-widest uppercase relative z-10">Database Upgrade Required</p>
+              </div>
+
+              <div className="p-5 sm:p-6 relative z-10 bg-white dark:bg-slate-900">
+                <p className="text-slate-600 dark:text-slate-400 text-center mb-4 leading-relaxed text-xs sm:text-sm">
+                  Your current storage tier does not support hosting rich study materials (PDFs, Documents). 
+                  Please upgrade your <span className="font-black text-slate-900 dark:text-white border-b-2 border-indigo-200 dark:border-indigo-900">Cloudinary & Supabase</span> backend to enable this feature.
+                </p>
+
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-slate-50 dark:bg-slate-800/50 rounded-2xl p-4 mb-4 border border-slate-100 dark:border-slate-800 shadow-inner">
+                  <div className="text-center w-full">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Current Plan</span>
+                    <span className="text-xs sm:text-sm font-black text-slate-700 dark:text-slate-300 bg-slate-200 dark:bg-slate-700 px-3 py-1 rounded-full inline-block">Basic</span>
+                  </div>
+                  <div className="hidden sm:block w-px h-8 bg-slate-200 dark:bg-slate-700 mx-2"></div>
+                  <div className="w-full h-px sm:hidden bg-slate-200 dark:bg-slate-700 my-1"></div>
+                  <div className="text-center w-full">
+                    <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider block mb-1">Required Plan</span>
+                    <span className="text-xs sm:text-sm font-black text-white bg-gradient-to-r from-indigo-500 to-purple-600 px-3 py-1 rounded-full shadow-md inline-block whitespace-nowrap">Pro Storage</span>
+                  </div>
+                </div>
+
+                <div className="text-left bg-gradient-to-br from-slate-50 to-indigo-50/30 dark:from-slate-800/50 dark:to-indigo-900/10 p-4 sm:p-5 rounded-2xl border border-slate-100 dark:border-slate-800 mb-6 shadow-sm">
+                  <h4 className="text-[10px] sm:text-xs font-black uppercase tracking-wider text-slate-800 dark:text-slate-200 mb-3 flex items-center gap-2">
+                    <FaClipboardList className="text-indigo-500" /> Coverage Details
+                  </h4>
+                  <ul className="text-[10px] sm:text-xs text-slate-600 dark:text-slate-400 space-y-2">
+                    <li className="flex items-start gap-2">
+                      <span className="text-indigo-500 mt-0.5 shrink-0">•</span>
+                      <span><strong className="text-slate-800 dark:text-slate-200">Duration:</strong> 9 Months minimum (and onward according to the backend provider).</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-indigo-500 mt-0.5 shrink-0">•</span>
+                      <span><strong className="text-slate-800 dark:text-slate-200">Capacity:</strong> Unlocks high-bandwidth PDF streaming via Cloudinary.</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-indigo-500 mt-0.5 shrink-0">•</span>
+                      <span><strong className="text-slate-800 dark:text-slate-200">Maintenance:</strong> Includes automated storage cleanup to prevent bloat.</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-indigo-500 mt-0.5 shrink-0">•</span>
+                      <span><strong className="text-slate-800 dark:text-slate-200">Activation:</strong> Instant provisioning upon payment verification.</span>
+                    </li>
+                  </ul>
+                </div>
+
+                <div className="space-y-3 sm:space-y-4">
+                  <a href="https://rzp.io/rzp/yNYOhZM" target="_blank" rel="noopener noreferrer" className="relative group block w-full text-center rounded-xl sm:rounded-2xl overflow-hidden shadow-[0_10px_20px_rgba(79,70,229,0.3)] transition-all transform hover:-translate-y-1">
+                    <div className="absolute inset-0 bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 bg-[length:200%_auto] animate-gradient"></div>
+                    <div className="relative py-3 sm:py-4 px-4 sm:px-6 flex items-center justify-center gap-2 text-white font-black text-xs sm:text-sm tracking-wide">
+                      <FaLock className="text-indigo-200 group-hover:text-white transition-colors" /> Upgrade Database Setup
+                    </div>
+                  </a>
+                  <button onClick={() => setShowUpgradeCard(false)} className="w-full py-2 text-[10px] sm:text-xs font-bold text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors uppercase tracking-widest">
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+    </div>
+  );
+}

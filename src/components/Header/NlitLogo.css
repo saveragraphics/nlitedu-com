@@ -1,0 +1,40 @@
+/* NLIT animated header logo — all classes start with "nlit-" so nothing clashes with your site */
+.nlit-logo{--nlit-h:56px;display:inline-flex;align-items:center;gap:calc(var(--nlit-h)*.2);height:var(--nlit-h);padding:0 6px;text-decoration:none;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.nlit-logo *{box-sizing:border-box}
+.nlit-icon{position:relative;height:100%;aspect-ratio:334/410;perspective:600px;flex:none}
+.nlit-word{position:relative;flex:none;height:calc(var(--nlit-h)*.5);aspect-ratio:615/216}
+@media(max-width:520px){.nlit-logo{--nlit-h:48px}}
+.nlit-logo .grp{position:absolute;inset:0;display:block}
+.nlit-logo .l{position:absolute;display:block;left:var(--l);top:var(--t);width:var(--w);height:var(--h)}
+.nlit-logo .l img{width:100%;height:100%;display:block;pointer-events:none;user-select:none}
+/* entry sequence (~3s) then gentle idle loops. Add/remove class "nlit-run" to replay */
+.nlit-run .grp.capgrp{animation:nlit-float 5s ease-in-out 3.6s infinite}
+.nlit-run .cap{animation:nlit-capDrop 1.1s cubic-bezier(.3,1.3,.5,1) .1s backwards}
+.nlit-run .sq{animation:nlit-fadeIn .4s ease 1.1s backwards,nlit-twinkle 2.8s ease-in-out calc(3.4s + var(--d)) infinite}
+.nlit-run .bulb{animation:nlit-fadeIn .6s ease 1s backwards,nlit-glow 2.6s ease-in-out 3.2s infinite}
+.nlit-run .bookL{transform-origin:100% 50%;animation:nlit-openL .9s cubic-bezier(.2,1.2,.4,1) .55s backwards,nlit-flutterL 5s ease-in-out 3.6s infinite}
+.nlit-run .bookR{transform-origin:0 50%;animation:nlit-openR .9s cubic-bezier(.2,1.2,.4,1) .55s backwards,nlit-flutterR 5s ease-in-out 3.6s infinite}
+.nlit-run .N{animation:nlit-rise .7s cubic-bezier(.2,.9,.3,1) 1.05s backwards}
+.nlit-run .Lt{animation:nlit-rise .7s cubic-bezier(.2,.9,.3,1) 1.2s backwards}
+.nlit-run .person{transform-origin:50% 100%;animation:nlit-grow .7s cubic-bezier(.3,1.5,.5,1) 1.4s backwards,nlit-sway 4s ease-in-out 3.4s infinite}
+.nlit-run .head{animation:nlit-drop .8s cubic-bezier(.4,1.6,.5,1) 1.75s backwards,nlit-bob 2.6s ease-in-out 3.4s infinite}
+.nlit-run .Tt{animation:nlit-draw 1s cubic-bezier(.5,0,.2,1) 1.9s backwards,nlit-tglow 3.2s ease-in-out 3.6s infinite}
+@keyframes nlit-fadeIn{from{opacity:0}}
+@keyframes nlit-capDrop{0%{transform:translateY(-90%) rotate(-12deg);opacity:0}45%{opacity:1}100%{transform:none}}
+@keyframes nlit-openL{from{transform:rotateY(85deg);opacity:0}30%{opacity:1}to{transform:none}}
+@keyframes nlit-openR{from{transform:rotateY(-85deg);opacity:0}30%{opacity:1}to{transform:none}}
+@keyframes nlit-rise{from{transform:translateY(35%);opacity:0}to{transform:none}}
+@keyframes nlit-grow{from{transform:scale(0);opacity:0}30%{opacity:1}to{transform:none}}
+@keyframes nlit-drop{from{transform:translateY(-260%);opacity:0}25%{opacity:1}to{transform:none}}
+@keyframes nlit-draw{from{clip-path:inset(0 0 100% 0)}to{clip-path:inset(0 0 -20% 0)}}
+@keyframes nlit-float{50%{transform:translateY(-2.2%)}}
+@keyframes nlit-twinkle{50%{opacity:.25;transform:scale(.7)}}
+@keyframes nlit-glow{50%{filter:drop-shadow(0 0 3px rgba(255,196,40,.95)) drop-shadow(0 0 7px rgba(255,196,40,.6))}}
+@keyframes nlit-flutterL{50%{transform:rotateY(7deg)}}
+@keyframes nlit-flutterR{50%{transform:rotateY(-7deg)}}
+@keyframes nlit-sway{50%{transform:rotate(1.6deg)}}
+@keyframes nlit-bob{50%{transform:translateY(-9%)}}
+@keyframes nlit-tglow{50%{filter:drop-shadow(0 0 4px rgba(66,148,247,.8))}}
+@media (prefers-reduced-motion:reduce){.nlit-run *{animation:none!important}}
+/* Dark mode: brighten the navy parts so they stay visible on the dark header */
+.dark .nlit-logo .l:not(.bulb) img{filter:brightness(2.4) saturate(1.2)}
