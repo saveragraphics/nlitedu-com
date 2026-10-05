@@ -44,11 +44,18 @@ function registerFonts() {
 
 function getSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+  let serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY;
+  if (serviceKey) serviceKey = serviceKey.replace(/^["']|["']$/g, '');
+  const anonKey = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "").replace(/^["']|["']$/g, '');
 
-  // Force anon key to bypass Unregistered API key error. 
-  // This will hit RLS for enrollments, which we will handle gracefully below.
-  return createClient(url, anonKey);
+  if (!serviceKey) {
+    console.warn(
+      "⚠️ SUPABASE_SERVICE_ROLE_KEY is not set! Using anon key — database writes may fail due to RLS policies."
+    );
+  }
+
+  const key = serviceKey || anonKey;
+  return createClient(url, key);
 }
 
 async function uploadToCloudinary(buffer: Buffer, publicId: string): Promise<string> {
@@ -176,7 +183,7 @@ async function generateCertificateImage(
   centerTextInGap(ctx, endDate, 60, 1880, 2220, 1345);
 
   // QR Code
-  const verifyUrl = `https://www.nlitedu.com/verify?id=${certNumber}`;
+  const verifyUrl = `https://certiva.careercue.in/verify/${certNumber}`;
   const qrDataUrl = await QRCode.toDataURL(verifyUrl, {
     width: 220,
     margin: 2,
@@ -395,7 +402,7 @@ async function sendCertificateEmail(
             <a href="${pdfUrl}" class="cta-btn" target="_blank">Download Certificate</a>
             <p class="verify-text">
               This credential is securely registered on our server. To verify its authenticity, visit:<br/>
-              <a class="verify-link" href="https://www.nlitedu.com/verify?id=${certificateNumber}">https://www.nlitedu.com/verify?id=${certificateNumber}</a>
+              <a class="verify-link" href="https://certiva.careercue.in/verify/${certificateNumber}">https://certiva.careercue.in/verify/${certificateNumber}</a>
             </p>
           </div>
           <div class="footer">
@@ -433,8 +440,8 @@ export async function POST(req: Request) {
     const { adminId, adminPass, startDate, endDate, courseFilter, mode, studentQuery, sendEmail, certificateType = "internship", customIssueDate } = body;
 
     // 1. Authenticate
-    const expectedId = process.env.CERTIFICATE_ADMIN_ID;
-    const expectedPass = process.env.CERTIFICATE_ADMIN_PASS;
+    const expectedId = (process.env.CERTIFICATE_ADMIN_ID || "").replace(/^["']|["']$/g, '');
+    const expectedPass = (process.env.CERTIFICATE_ADMIN_PASS || "").replace(/^["']|["']$/g, '');
 
     if (!expectedId || !expectedPass || adminId !== expectedId || adminPass !== expectedPass) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
@@ -577,30 +584,7 @@ export async function POST(req: Request) {
           .eq("certificate_number", certNumber)
           .maybeSingle();
 
-        if (existingCert) {
-          let emailSent = false;
-          if (sendEmail && student.email) {
-            emailSent = await sendCertificateEmail(
-              student.full_name,
-              student.email,
-              student.course_title,
-              certNumber,
-              existingCert.pdf_url,
-              certificateType
-            );
-          }
-          
-          return {
-            name: student.full_name,
-            course: student.course_title,
-            college: student.college_name,
-            certNumber,
-            cloudinaryUrl: existingCert.pdf_url,
-            emailSent: emailSent,
-            status: "success",
-            dbError: "Certificate already exists — skipped regeneration.",
-          };
-        }
+        // We will regenerate the certificate even if it exists to fix broken links.
 
         // Generate image with text overlay
         const imageBuffer = await generateCertificateImage(
@@ -621,24 +605,42 @@ export async function POST(req: Request) {
         // Insert into certificates table
         const issueDate = customIssueDate ? customIssueDate : new Date().toISOString().split("T")[0];
 
-        const { data: certData, error: certError } = await supabase
-          .from("certificates")
-          .insert({
-            student_name: student.full_name,
-            course_name: student.course_title,
-            course_title: student.course_title,
-            college_name: student.college_name || "NLIT Authorized Center",
-            certificate_number: certNumber,
-            grade: "A",
-            duration: `${startDate} to ${endDate}`,
-            pdf_url: cloudinaryUrl,
-            issue_date: issueDate,
-            issued_date: issueDate,
-            user_email: student.email || null,
-            certificate_type: certificateType,
-          })
-          .select()
-          .single();
+        let certData, certError;
+        if (existingCert) {
+          const { data, error } = await supabase
+            .from("certificates")
+            .update({
+              pdf_url: cloudinaryUrl,
+              issue_date: issueDate,
+              issued_date: issueDate,
+            })
+            .eq("certificate_number", certNumber)
+            .select()
+            .single();
+          certData = data;
+          certError = error;
+        } else {
+          const { data, error } = await supabase
+            .from("certificates")
+            .insert({
+              student_name: student.full_name,
+              course_name: student.course_title,
+              course_title: student.course_title,
+              college_name: student.college_name || "NLIT Authorized Center",
+              certificate_number: certNumber,
+              grade: "A",
+              duration: `${startDate} to ${endDate}`,
+              pdf_url: cloudinaryUrl,
+              issue_date: issueDate,
+              issued_date: issueDate,
+              user_email: student.email || null,
+              certificate_type: certificateType,
+            })
+            .select()
+            .single();
+          certData = data;
+          certError = error;
+        }
 
         // Send email if requested
         let emailSent = false;
@@ -726,8 +728,8 @@ export async function GET(req: Request) {
   const adminPass = url.searchParams.get("adminPass");
 
   // Authenticate GET requests
-  const expectedId = process.env.CERTIFICATE_ADMIN_ID;
-  const expectedPass = process.env.CERTIFICATE_ADMIN_PASS;
+  const expectedId = (process.env.CERTIFICATE_ADMIN_ID || "").replace(/^["']|["']$/g, '');
+  const expectedPass = (process.env.CERTIFICATE_ADMIN_PASS || "").replace(/^["']|["']$/g, '');
 
   if (!expectedId || !expectedPass || adminId !== expectedId || adminPass !== expectedPass) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
@@ -744,12 +746,11 @@ export async function GET(req: Request) {
       .eq("status", "PAID");
 
     if (error) {
-      console.warn("RLS or API key issue on enrollments. Falling back to default courses.");
-      return NextResponse.json({ courses: ["AUTOCAD", "REVIT", "PYTHON"] });
+      return NextResponse.json({ error: `Failed to fetch courses: ${error.message}` }, { status: 500 });
     }
 
     const uniqueCourses = [...new Set((data || []).map((d: any) => d.course_title).filter(Boolean))];
-    return NextResponse.json({ courses: uniqueCourses.length ? uniqueCourses : ["AUTOCAD", "REVIT", "PYTHON"] });
+    return NextResponse.json({ courses: uniqueCourses });
   }
 
   if (action === "certificates") {
@@ -761,8 +762,7 @@ export async function GET(req: Request) {
       .limit(5000); // Increased limit to fetch all certificates
 
     if (error) {
-      console.warn("Error fetching certificates:", error.message);
-      return NextResponse.json({ certificates: [] });
+      return NextResponse.json({ error: `Failed to fetch certificates: ${error.message}` }, { status: 500 });
     }
 
     return NextResponse.json({ certificates: data || [] });
@@ -784,8 +784,7 @@ export async function GET(req: Request) {
     const { data, error } = await query;
 
     if (error) {
-      console.warn("RLS or API key issue on enrollments.");
-      return NextResponse.json({ enrollments: [] });
+      return NextResponse.json({ error: `Failed to fetch enrollments: ${error.message}` }, { status: 500 });
     }
 
     return NextResponse.json({ enrollments: data || [] });

@@ -482,7 +482,7 @@ export default function EnrollmentDetail({ enrollment, onClose }: EnrollmentDeta
                           <DocumentLink 
                             key={cert.certificate_number}
                             label={`${cert.certificate_type === 'workshop' ? 'Workshop ' : ''}Certificate: ${cert.certificate_number}`} 
-                            url={cert.pdf_url} 
+                            url={`https://certiva.careercue.in/verify/${cert.certificate_number}`} 
                             color="blue" 
                           />
                         ))}
