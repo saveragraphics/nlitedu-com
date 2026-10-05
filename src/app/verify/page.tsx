@@ -1,20 +1,37 @@
-import { redirect } from "next/navigation";
+"use client";
 
-export const metadata = {
-  title: "Verify Certificate | NLIT",
-  description: "Verify your NLIT training or internship certificate on Certiva.",
-};
+import React, { useEffect, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 
-export default function VerifyPage({
-  searchParams,
-}: {
-  searchParams: { [key: string]: string | string[] | undefined };
-}) {
-  const id = searchParams?.id || searchParams?.number;
-  
-  if (id && typeof id === "string") {
-    redirect(`https://certiva.careercue.in/verify/${id}`);
-  } else {
-    redirect(`https://certiva.careercue.in/verify`);
-  }
+function VerifyRedirect() {
+  const searchParams = useSearchParams();
+
+  useEffect(() => {
+    const idParam = searchParams.get("id") || searchParams.get("number") || "";
+    if (idParam) {
+      window.location.replace(`https://certiva.careercue.in/verify/${idParam}`);
+    } else {
+      window.location.replace("https://certiva.careercue.in/verify");
+    }
+  }, [searchParams]);
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-black text-slate-500 font-medium">
+      Redirecting to Certiva Verification System...
+    </div>
+  );
+}
+
+export default function VerifyPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-black">
+          <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin dark:border-blue-500" />
+        </div>
+      }
+    >
+      <VerifyRedirect />
+    </Suspense>
+  );
 }
