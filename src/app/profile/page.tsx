@@ -14,6 +14,7 @@ import {
   FaExternalLinkAlt
 } from "react-icons/fa";
 import { jsPDF } from "jspdf";
+import { uploadToCloudinary } from "@/lib/cloudinaryUpload";
 
 interface ProfileData {
   id: string;
@@ -660,24 +661,7 @@ const ProfilePage = () => {
       const pdfBlob = pdf.output("blob");
       const pdfFile = new File([pdfBlob], `Certificate_${certificateNumber}.pdf`, { type: "application/pdf" });
 
-      const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || "dx1ywq1pi";
-      const uploadPreset = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET || "nlitedu_uploads";
-
-      const formData = new FormData();
-      formData.append("file", pdfFile);
-      formData.append("upload_preset", uploadPreset);
-
-      const uploadRes = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/raw/upload`, {
-        method: "POST",
-        body: formData,
-      });
-
-      if (!uploadRes.ok) {
-        throw new Error("Failed to upload certificate PDF to Cloudinary.");
-      }
-
-      const cloudData = await uploadRes.json();
-      const pdfUrl = cloudData.secure_url;
+      const pdfUrl = await uploadToCloudinary(pdfFile);
 
       // 4. Update the DB record with Cloudinary pdfUrl
       const updateRes = await fetch("/api/certificate/claim", {

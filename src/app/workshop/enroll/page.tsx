@@ -12,6 +12,7 @@ import { useAuth } from "@/context/AuthContext";
 import { jsPDF } from "jspdf";
 import html2canvas from "html2canvas";
 import { Suspense } from "react";
+import { uploadToCloudinary } from "@/lib/cloudinaryUpload";
 
 const semesters = [
   "1st",
@@ -273,8 +274,8 @@ const WorkshopEnrollmentPageContent = () => {
 
   const handle12FileChange = (e: ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      if (e.target.files[0].size > 500 * 1024) {
-        alert("Maximum file size strictly limited to 500 KB.");
+      if (e.target.files[0].size > 10 * 1024 * 1024) {
+        alert("Maximum file size strictly limited to 10 MB.");
         return;
       }
       setMarksheet12File(e.target.files[0]);
@@ -283,8 +284,8 @@ const WorkshopEnrollmentPageContent = () => {
 
   const handleSemFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      if (e.target.files[0].size > 500 * 1024) {
-        alert("Maximum file size strictly limited to 500 KB.");
+      if (e.target.files[0].size > 10 * 1024 * 1024) {
+        alert("Maximum file size strictly limited to 10 MB.");
         return;
       }
       setMarksheetSemFile(e.target.files[0]);
@@ -294,13 +295,13 @@ const WorkshopEnrollmentPageContent = () => {
   const handleCollegeIdFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      if (file.size > 200 * 1024) {
-        alert("College ID file size must be under 200 KB.");
+      if (file.size > 10 * 1024 * 1024) {
+        alert("College ID file size must be under 10 MB.");
         return;
       }
-      const allowedTypes = ["image/jpeg", "image/jpg", "image/png"];
-      if (!allowedTypes.includes(file.type)) {
-        alert("Only JPG, JPEG, or PNG files are allowed for College ID.");
+      const allowedTypes = ["image/jpeg", "image/jpg", "image/png", "image/webp", "application/pdf"];
+      if (!allowedTypes.includes(file.type) && !file.name.match(/\.(jpg|jpeg|png|webp|pdf)$/i)) {
+        alert("Only JPG, JPEG, PNG, WebP or PDF files are allowed for College ID.");
         return;
       }
       setCollegeIdFile(file);
@@ -374,6 +375,25 @@ const WorkshopEnrollmentPageContent = () => {
       origin: { y: 0.6 },
       colors: ["#2563eb", "#9333ea", "#10b981"],
     });
+
+    // Auto-trigger confirmation email
+    const studentName = saved?.fullName || form.fullName || user?.user_metadata?.full_name || "Student";
+    const studentEmail = saved?.email || form.email || user?.email || "";
+    const courseTitle = saved?.course || form.course || workshop.title;
+    const finalOrderId = pendingOrderId || searchParams.get("order_id") || "N/A";
+
+    if (studentEmail && courseTitle) {
+      fetch("/api/email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          studentName,
+          studentEmail,
+          courseTitle,
+          orderId: finalOrderId,
+        }),
+      }).catch((e) => console.warn("Auto email trigger notification:", e));
+    }
   };
 
   const verifyPaymentStatus = async (payload: any) => {
@@ -561,32 +581,15 @@ const WorkshopEnrollmentPageContent = () => {
       let uploadedSemUrl = "";
       let uploadedCollegeIdUrl = "";
 
-      const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
-      const uploadPreset = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET;
-
-      if ((marksheet12File || marksheetSemFile || collegeIdFile) && (!cloudName || !uploadPreset)) {
-        throw new Error("Cloudinary configuration is missing. Please set Environment Variables.");
+      if (marksheet12File) {
+        uploaded12Url = await uploadToCloudinary(marksheet12File);
       }
-
-      const uploadToCloudinary = async (file: File) => {
-        const formData = new FormData();
-        formData.append("file", file);
-        formData.append("upload_preset", uploadPreset!);
-        const resourceType = file.type === "application/pdf" ? "raw" : "auto";
-
-        const uploadRes = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/${resourceType}/upload`, {
-          method: "POST",
-          body: formData,
-        });
-        
-        if (!uploadRes.ok) throw new Error("Failed to upload file to Cloudinary. Please try again.");
-        const cloudData = await uploadRes.json();
-        return cloudData.secure_url;
-      };
-
-      if (marksheet12File) uploaded12Url = await uploadToCloudinary(marksheet12File);
-      if (marksheetSemFile) uploadedSemUrl = await uploadToCloudinary(marksheetSemFile);
-      if (collegeIdFile) uploadedCollegeIdUrl = await uploadToCloudinary(collegeIdFile);
+      if (marksheetSemFile) {
+        uploadedSemUrl = await uploadToCloudinary(marksheetSemFile);
+      }
+      if (collegeIdFile) {
+        uploadedCollegeIdUrl = await uploadToCloudinary(collegeIdFile);
+      }
 
       // Save to enrollments table in Supabase
       const pendingData: any = {
@@ -1052,7 +1055,7 @@ const WorkshopEnrollmentPageContent = () => {
               {/* ID Card Upload — only for Job Professionals (working professionals), mandatory */}
               {form.collegeType === "job" && (
                 <label className="block sm:col-span-2">
-                  <span className="mb-2 block text-sm font-medium">Upload ID Card / Employee ID Card <span className="text-red-500">*</span> <span className="text-xs text-slate-400">(Max 200KB — JPG/PNG only)</span></span>
+                  <span className="mb-2 block text-sm font-medium">Upload ID Card / Employee ID Card <span className="text-red-500">*</span> <span className="text-xs text-slate-400">(Max 10MB — JPG, PNG, PDF)</span></span>
                   <div className="flex items-center justify-center w-full">
                     <label htmlFor="dropzone-college-id" className="flex flex-col items-center justify-center w-full h-32 border-2 border-slate-300 border-dashed rounded-2xl cursor-pointer bg-slate-50 hover:bg-slate-100 dark:bg-slate-950 dark:border-slate-700 dark:hover:border-slate-600 transition">
                       <div className="flex flex-col items-center justify-center pt-5 pb-6 text-center px-4">
@@ -1060,9 +1063,9 @@ const WorkshopEnrollmentPageContent = () => {
                           <path stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 13h3a3 3 0 0 0 0-6h-.025A5.56 5.56 0 0 0 16 6.5 5.5 5.5 0 0 0 5.207 5.021C5.137 5.017 5.071 5 5 5a4 4 0 0 0 0 8h2.167M10 15V6m0 0L8 8m2-2 2 2" />
                         </svg>
                         <p className="mb-2 text-sm text-slate-500 dark:text-slate-400 font-semibold">{collegeIdFile ? collegeIdFile.name : "Click to upload ID Card / Employee ID"}</p>
-                        <p className="text-xs text-slate-500 dark:text-slate-400">JPG, JPEG, PNG (MAX. 200KB)</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">JPG, JPEG, PNG, PDF (MAX. 10MB)</p>
                       </div>
-                      <input id="dropzone-college-id" type="file" className="hidden" accept="image/jpeg,image/jpg,image/png" onChange={handleCollegeIdFileChange} />
+                      <input id="dropzone-college-id" type="file" className="hidden" accept="image/jpeg,image/jpg,image/png,image/webp,application/pdf" onChange={handleCollegeIdFileChange} />
                     </label>
                   </div>
                   {collegeIdFile && (
@@ -1209,7 +1212,7 @@ const WorkshopEnrollmentPageContent = () => {
             </div>
             <div className="grid gap-5 sm:grid-cols-2">
               <label className="block">
-                <span className="mb-2 block text-sm font-medium">Upload 10th/12th Marksheet (Max 500KB)</span>
+                <span className="mb-2 block text-sm font-medium">Upload 10th/12th Marksheet (Max 10MB)</span>
                 <div className="flex items-center justify-center w-full">
                   <label htmlFor="dropzone-file-1" className="flex flex-col items-center justify-center w-full h-32 border-2 border-slate-300 border-dashed rounded-2xl cursor-pointer bg-slate-50 hover:bg-slate-100 dark:bg-slate-950 dark:border-slate-700 dark:hover:border-slate-600 transition">
                     <div className="flex flex-col items-center justify-center pt-5 pb-6 text-center px-4">
@@ -1217,7 +1220,7 @@ const WorkshopEnrollmentPageContent = () => {
                         <path stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 13h3a3 3 0 0 0 0-6h-.025A5.56 5.56 0 0 0 16 6.5 5.5 5.5 0 0 0 5.207 5.021C5.137 5.017 5.071 5 5 5a4 4 0 0 0 0 8h2.167M10 15V6m0 0L8 8m2-2 2 2" />
                       </svg>
                       <p className="mb-2 text-sm text-slate-500 dark:text-slate-400 font-semibold">{marksheet12File ? marksheet12File.name : "Click to upload"}</p>
-                      <p className="text-xs text-slate-500 dark:text-slate-400">PDF, JPG, PNG (MAX. 500KB)</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">PDF, JPG, PNG, WEBP (MAX. 10MB)</p>
                     </div>
                     <input id="dropzone-file-1" type="file" className="hidden" accept=".pdf,image/*" onChange={handle12FileChange} />
                   </label>
@@ -1225,7 +1228,7 @@ const WorkshopEnrollmentPageContent = () => {
               </label>
 
               <label className="block">
-                <span className="mb-2 block text-sm font-medium">Upload Latest Sem Marksheet (Max 500KB)</span>
+                <span className="mb-2 block text-sm font-medium">Upload Latest Sem Marksheet (Max 10MB)</span>
                 <div className="flex items-center justify-center w-full">
                   <label htmlFor="dropzone-file-2" className="flex flex-col items-center justify-center w-full h-32 border-2 border-slate-300 border-dashed rounded-2xl cursor-pointer bg-slate-50 hover:bg-slate-100 dark:bg-slate-950 dark:border-slate-700 dark:hover:border-slate-600 transition">
                     <div className="flex flex-col items-center justify-center pt-5 pb-6 text-center px-4">
@@ -1233,7 +1236,7 @@ const WorkshopEnrollmentPageContent = () => {
                         <path stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 13h3a3 3 0 0 0 0-6h-.025A5.56 5.56 0 0 0 16 6.5 5.5 5.5 0 0 0 5.207 5.021C5.137 5.017 5.071 5 5 5a4 4 0 0 0 0 8h2.167M10 15V6m0 0L8 8m2-2 2 2" />
                       </svg>
                       <p className="mb-2 text-sm text-slate-500 dark:text-slate-400 font-semibold">{marksheetSemFile ? marksheetSemFile.name : "Click to upload"}</p>
-                      <p className="text-xs text-slate-500 dark:text-slate-400">PDF, JPG, PNG (MAX. 500KB)</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">PDF, JPG, PNG, WEBP (MAX. 10MB)</p>
                     </div>
                     <input id="dropzone-file-2" type="file" className="hidden" accept=".pdf,image/*" onChange={handleSemFileChange} />
                   </label>

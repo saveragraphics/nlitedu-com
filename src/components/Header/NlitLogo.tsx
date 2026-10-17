@@ -39,7 +39,7 @@ const renderPiece = (p: Piece) => (
 
 const NlitLogo = ({ className = "" }: { className?: string }) => {
   const ref = useRef<HTMLAnchorElement>(null);
-  const timer = useRef<ReturnType<typeof setTimeout>>();
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   // Replay the entry animation on hover
   const replay = () => {
